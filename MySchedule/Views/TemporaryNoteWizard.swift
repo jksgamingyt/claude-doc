@@ -30,6 +30,7 @@ struct TemporaryNoteWizard: View {
     @State private var linger: LingerPreset
     @State private var reminders: [ReminderLead]
     @State private var notifyOnExpiry: Bool
+    @State private var notify: Bool
     @State private var tag: TagColor
 
     private static let stepCount = 3
@@ -58,6 +59,7 @@ struct TemporaryNoteWizard: View {
         _linger = State(initialValue: settings.defaultLinger)
         _reminders = State(initialValue: settings.temporaryReminderLeads)
         _notifyOnExpiry = State(initialValue: settings.notifyOnExpiry)
+        _notify = State(initialValue: true)
         _tag = State(initialValue: .defaultForTemporary)
     }
 
@@ -77,6 +79,8 @@ struct TemporaryNoteWizard: View {
         _linger = State(initialValue: note.linger)
         _reminders = State(initialValue: note.reminders)
         _notifyOnExpiry = State(initialValue: note.notifyOnExpiry)
+        // A note with no reminders and no expiry alert was answered "no".
+        _notify = State(initialValue: !note.reminders.isEmpty || note.notifyOnExpiry)
         _tag = State(initialValue: note.tag)
     }
 
@@ -219,24 +223,19 @@ struct TemporaryNoteWizard: View {
                 }
             }
 
-            FieldBlock(
-                title: "Reminders",
-                caption: "Nudges ahead of the deadline. Stack as many as you like."
-            ) {
-                ReminderPicker(selection: $reminders, tint: Palette.clay)
-            }
-
-            Toggle(isOn: $notifyOnExpiry) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tell me when it expires")
-                        .font(TypeScale.bodyEmphasis)
-                        .foregroundStyle(Palette.ink)
-                    Text("One last notification as it comes off the schedule.")
-                        .font(TypeScale.caption)
-                        .foregroundStyle(Palette.inkTertiary)
+            NotificationGate(notify: $notify, reminders: $reminders, tint: Palette.clay) {
+                Toggle(isOn: $notifyOnExpiry) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Tell me when it expires")
+                            .font(TypeScale.bodyEmphasis)
+                            .foregroundStyle(Palette.ink)
+                        Text("One last alert as the note comes off your schedule.")
+                            .font(TypeScale.caption)
+                            .foregroundStyle(Palette.inkTertiary)
+                    }
                 }
+                .tint(Palette.clay)
             }
-            .tint(Palette.clay)
 
             FieldBlock(title: "Colour") {
                 TagPicker(selection: $tag)
@@ -319,8 +318,8 @@ struct TemporaryNoteWizard: View {
             due: due,
             isAllDay: isAllDay,
             linger: linger,
-            reminders: reminders.sorted(by: >),
-            notifyOnExpiry: notifyOnExpiry,
+            reminders: notify ? reminders.sorted(by: >) : [],
+            notifyOnExpiry: notify ? notifyOnExpiry : false,
             tag: tag,
             createdAt: createdAt,
             isDone: wasDone,

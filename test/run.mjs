@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 
 // localStorage shim, so store.js runs outside a browser.
 const memory = new Map();
+globalThis.window = { matchMedia: () => ({ matches: false }), navigator: {} };
 globalThis.localStorage = {
   getItem: (k) => (memory.has(k) ? memory.get(k) : null),
   setItem: (k, v) => memory.set(k, String(v)),
@@ -18,6 +19,7 @@ const M = await import('../docs/js/model.js');
 const E = await import('../docs/js/engine.js');
 const S = await import('../docs/js/store.js');
 const I = await import('../docs/js/ics.js');
+const N = await import('../docs/js/notify.js');
 
 let passed = 0;
 let failed = 0;
@@ -25,7 +27,10 @@ const failures = [];
 
 function test(name, fn) {
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      throw new Error('tests must be synchronous');
+    }
     passed += 1;
   } catch (error) {
     failed += 1;
@@ -488,6 +493,54 @@ test('export skips notes that are done or already past', () => {
   store.addTemporary({ title: 'Future', due: Date.now() + M.DAY });
   const batch = I.exportable(store.state, true);
   assert.deepEqual(batch.temporary.map((n) => n.title), ['Future']);
+});
+
+// ---------------------------------------------------------------------------
+// Silent notes
+// ---------------------------------------------------------------------------
+
+test('a note with no reminders produces no reminder timetable entries', () => {
+  const store = freshStore();
+  store.addTemporary({
+    title: 'Silent', due: at(2026, 7, 20, 18, 0), reminders: [], notifyOnExpiry: false,
+  });
+  const timetable = N.reminderTimetable(store.state, at(2026, 7, 18), 10);
+  assert.equal(timetable.length, 0);
+});
+
+test('turning the expiry alert off removes the only entry a reminderless note had', () => {
+  const store = freshStore();
+  store.addTemporary({
+    title: 'Expiring', due: at(2026, 7, 20, 18, 0), linger: 'oneDay',
+    reminders: [], notifyOnExpiry: true,
+  });
+  assert.equal(N.reminderTimetable(store.state, at(2026, 7, 18), 10).length, 1);
+
+  store.updateTemporary({ id: store.state.temporary[0].id, notifyOnExpiry: false });
+  assert.equal(N.reminderTimetable(store.state, at(2026, 7, 18), 10).length, 0);
+});
+
+test('a silent permanent note never enters the timetable', () => {
+  const store = freshStore();
+  store.addPermanent({
+    title: 'Quiet walk', recurrence: { kind: 'daily' },
+    startDate: at(2026, 7, 1), reminders: [],
+  });
+  assert.equal(N.reminderTimetable(store.state, at(2026, 7, 18), 10).length, 0);
+});
+
+test('a silent note still exports to the calendar, just without an alarm', () => {
+  const note = M.makeTemporary({ title: 'Silent', due: at(2026, 7, 20, 18, 0), reminders: [] });
+  const { text, count } = I.buildICS({ temporary: [note], permanent: [] });
+  assert.equal(count, 1, 'still an event');
+  assert.ok(text.includes('SUMMARY:Silent'));
+  assert.ok(!text.includes('BEGIN:VALARM'), 'but no alarm');
+});
+
+test('a silent note still appears on the schedule', () => {
+  const note = M.makeTemporary({ title: 'Silent', due: at(2026, 7, 20, 18, 0), reminders: [] });
+  const state = stateWith([note]);
+  assert.equal(E.entriesOn(state, at(2026, 7, 20)).length, 1);
 });
 
 // ---------------------------------------------------------------------------

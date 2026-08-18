@@ -27,6 +27,7 @@ struct PermanentNoteWizard: View {
     @State private var time: Date
     @State private var durationMinutes: Int
     @State private var reminders: [ReminderLead]
+    @State private var notify: Bool
     @State private var tag: TagColor
 
     private static let stepCount = 3
@@ -48,6 +49,7 @@ struct PermanentNoteWizard: View {
         _time = State(initialValue: calendar.date(byAdding: .minute, value: 8 * 60, to: startOfToday) ?? now)
         _durationMinutes = State(initialValue: 60)
         _reminders = State(initialValue: settings.permanentReminderLeads)
+        _notify = State(initialValue: !settings.permanentReminderLeads.isEmpty)
         _tag = State(initialValue: .defaultForPermanent)
     }
 
@@ -65,6 +67,7 @@ struct PermanentNoteWizard: View {
         _time = State(initialValue: calendar.date(byAdding: .minute, value: note.startMinutes, to: startOfToday) ?? Date())
         _durationMinutes = State(initialValue: note.durationMinutes)
         _reminders = State(initialValue: note.reminders)
+        _notify = State(initialValue: !note.reminders.isEmpty)
         _tag = State(initialValue: note.tag)
     }
 
@@ -280,16 +283,7 @@ struct PermanentNoteWizard: View {
                 }
             }
 
-            FieldBlock(
-                title: "Reminders",
-                caption: "Leave this empty and the note simply sits on your schedule without buzzing."
-            ) {
-                ReminderPicker(
-                    selection: $reminders,
-                    tint: Palette.moss,
-                    emptyMessage: "Silent. It appears on the schedule, nothing more."
-                )
-            }
+            NotificationGate(notify: $notify, reminders: $reminders, tint: Palette.moss)
 
             FieldBlock(title: "Colour") {
                 TagPicker(selection: $tag)
@@ -305,7 +299,7 @@ struct PermanentNoteWizard: View {
             summaryCard(
                 symbol: "leaf.fill",
                 headline: "\(recurrence.summary(calendar: store.calendar)) at \(TimeFormatting.time(fromMinutes: minuteOfDay(time), calendar: store.calendar))",
-                detail: "Holds \(DurationFormatting.describe(minutes: durationMinutes)) · never expires"
+                detail: "Holds \(DurationFormatting.describe(minutes: durationMinutes)) · \(notify && !reminders.isEmpty ? "will alert you" : "silent") · never expires"
             )
         }
     }
@@ -382,7 +376,7 @@ struct PermanentNoteWizard: View {
             startDate: store.calendar.startOfDay(for: startDate),
             startMinutes: minuteOfDay(time),
             durationMinutes: durationMinutes,
-            reminders: reminders.sorted(by: >),
+            reminders: notify ? reminders.sorted(by: >) : [],
             tag: tag,
             isMuted: wasMuted,
             createdAt: createdAt

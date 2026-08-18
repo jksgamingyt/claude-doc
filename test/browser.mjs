@@ -239,11 +239,82 @@ const persisted = await page.evaluate(() => ({
 check('notes survive a reload', persisted.temporary === 1 && persisted.permanent === 1,
   JSON.stringify(persisted));
 
+// --- the notification gate: a note you never want to hear from
+// The reload above put us back on the welcome screen; walk in through the door.
+if (await page.getByText('Step in').count()) {
+  await page.getByText('Step in').click();
+  await page.waitForTimeout(250);
+  await page.getByText('Temporary notes').click();
+  await page.waitForTimeout(300);
+}
+await page.getByRole('tab', { name: /Temporary/ }).click();
+await page.waitForTimeout(250);
+const composer3 = page.locator('.composer input');
+await composer3.fill('Water the plants');
+await composer3.press('Enter');
+await page.waitForTimeout(300);
+
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(200);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(250);
+
+check('the wizard asks whether to notify at all',
+  await page.getByText('Should this note notify you?').count() > 0);
+check('reminder options are shown while the answer is yes',
+  await page.getByText('Nudge me').count() > 0);
+check('the per-note expiry alert is offered',
+  await page.getByText('Tell me when it expires').count() > 0);
+await shot('gate-yes');
+
+await page.locator('.sheet-body .chip', { hasText: 'No, stay silent' }).first().click();
+await page.waitForTimeout(250);
+check('saying no hides the reminder options',
+  await page.getByText('Nudge me').count() === 0);
+check('saying no hides the expiry alert too',
+  await page.getByText('Tell me when it expires').count() === 0);
+check('saying no explains what that means',
+  await page.getByText('No alerts of any kind for this one.').count() > 0);
+await shot('gate-no');
+
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(400);
+
+const silent = await page.evaluate(() => {
+  const note = window.myschedule.store.state.temporary.find((n) => n.title === 'Water the plants');
+  return note ? { reminders: note.reminders.length, expiry: note.notifyOnExpiry } : null;
+});
+check('a silent note is saved with no reminders and no expiry alert',
+  silent && silent.reminders === 0 && silent.expiry === false, JSON.stringify(silent));
+
+const timetable = await page.evaluate(async () => {
+  const notify = await import('./js/notify.js');
+  const state = window.myschedule.store.state;
+  return notify.reminderTimetable(state, Date.now(), 14)
+    .filter((item) => item.title === 'Water the plants').length;
+});
+check('a silent note schedules nothing', timetable === 0, `${timetable} entries`);
+
+// Re-open it: the answer must come back as "no", not as a blank yes.
+await page.locator('.note', { hasText: 'Water the plants' }).locator('.grow').first().click();
+await page.waitForTimeout(300);
+await page.getByText('Edit this note').click();
+await page.waitForTimeout(300);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(200);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(250);
+const noPressed = await page.locator('.sheet-body .chip', { hasText: 'No, stay silent' })
+  .first().getAttribute('aria-pressed');
+check('re-opening a silent note remembers the answer', noPressed === 'true', String(noPressed));
+await page.getByText('Cancel').first().click();
+await page.waitForTimeout(250);
+
 // --- dark mode
 await page.emulateMedia({ colorScheme: 'dark' });
 await page.waitForTimeout(300);
 await tapText('Step in').catch(() => {});
-await shot('dark-welcome');
+await shot('dark');
 const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 check('dark theme applies', bg.replace(/\s/g, '') !== 'rgb(242,245,239)', bg);
 

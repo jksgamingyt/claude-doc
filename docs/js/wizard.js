@@ -14,7 +14,7 @@ import {
 } from './model.js';
 import { nextOccurrence } from './engine.js';
 import {
-  h, mount, icon, chip, fieldBlock, summaryCard, openSheet, toast,
+  h, mount, icon, chip, fieldBlock, summaryCard, toggleRow, openSheet, toast,
 } from './ui.js';
 
 // ---------------------------------------------------------------------------
@@ -149,6 +149,39 @@ function reminderPicker(draft, refresh, tone, emptyMessage) {
   );
 }
 
+/**
+ * The first question about notifications is whether there should be any at all.
+ * Everything else stays hidden until the answer is yes, so a note you never
+ * want to hear from takes one tap rather than deselecting a row of chips.
+ */
+function notificationGate(draft, refresh, tone, extras) {
+  const question = h('div.card', { style: { marginBottom: '14px' } },
+    h('h3', { style: { fontSize: '15px', fontWeight: 700, marginBottom: '3px' },
+      text: 'Should this note notify you?' }),
+    h('p.help', { style: { marginBottom: '11px' },
+      text: 'Say no and it still appears on your schedule — it just never buzzes.' }),
+    h('div.chips',
+      chip('Yes, notify me', draft.notify,
+        () => { draft.notify = true; refresh(); }, { tone, iconName: 'bell' }),
+      chip('No, stay silent', !draft.notify,
+        () => { draft.notify = false; refresh(); }, { tone, iconName: 'bellOff' })));
+
+  if (!draft.notify) {
+    return h('div', question,
+      h(`div.summary${tone ? '.' + tone : ''}`,
+        icon('bellOff', 16),
+        h('div',
+          h('strong', 'Silent'),
+          h('div.small.muted', 'No alerts of any kind for this one.'))));
+  }
+
+  return h('div', question,
+    fieldBlock('Nudge me', 'Each one becomes its own alert. Stack as many as you like.',
+      reminderPicker(draft, refresh, tone,
+        'Nothing picked yet — choose at least one, or say "No, stay silent" above.')),
+    ...(extras || []));
+}
+
 function tagPicker(draft, refresh) {
   const row = h('div.swatches');
   for (const key of TAG_KEYS) {
@@ -192,6 +225,8 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       linger: editing.linger,
       reminders: editing.reminders.slice(),
       notifyOnExpiry: editing.notifyOnExpiry,
+      // A note with no reminders and no expiry alert was answered "no".
+      notify: editing.reminders.length > 0 || editing.notifyOnExpiry,
       tag: editing.tag,
       createdAt: editing.createdAt,
       isDone: editing.isDone,
@@ -206,6 +241,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       linger: settings.defaultLinger,
       reminders: settings.defaultTemporaryReminders.slice(),
       notifyOnExpiry: settings.notifyOnExpiry,
+      notify: true,
       tag: 'clay',
     };
 
@@ -294,11 +330,17 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
           fieldBlock('When should it disappear?',
             'Once this passes, the note leaves your schedule on its own. Nothing is lost — it moves to Recently cleared.',
             lingerChips),
-          fieldBlock('Reminders', 'Nudges ahead of the deadline. Stack as many as you like.',
-            reminderPicker(d, refresh, 'clay', 'No reminders. It will still appear on your schedule.')),
+          notificationGate(d, refresh, 'clay', [
+            h('div.settings-group', { style: { marginTop: '2px' } },
+              toggleRow('Tell me when it expires',
+                'One last alert as the note comes off your schedule.',
+                d.notifyOnExpiry,
+                (value) => { d.notifyOnExpiry = value; refresh(); })),
+          ]),
           fieldBlock('Colour', null, tagPicker(d, refresh)),
           fieldBlock('Anything else?', 'Optional. Shows under the note on your schedule.', detailsField(d)),
-          summaryCard('check', `Due ${formatFull(dueOf(d))}`, expiryText, 'clay'),
+          summaryCard('check', `Due ${formatFull(dueOf(d))}`,
+            `${expiryText} ${d.notify && (d.reminders.length || d.notifyOnExpiry) ? 'Alerts on.' : 'Silent.'}`, 'clay'),
         );
       },
     },
@@ -319,8 +361,8 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
         due: dueOf(d),
         isAllDay: d.isAllDay,
         linger: d.linger,
-        reminders: d.reminders,
-        notifyOnExpiry: d.notifyOnExpiry,
+        reminders: d.notify ? d.reminders : [],
+        notifyOnExpiry: d.notify ? d.notifyOnExpiry : false,
         tag: d.tag,
         createdAt: d.createdAt,
         isDone: d.isDone,
@@ -345,6 +387,7 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
       minutes: editing.startMinutes,
       durationMinutes: editing.durationMinutes,
       reminders: editing.reminders.slice(),
+      notify: editing.reminders.length > 0,
       tag: editing.tag,
       isMuted: editing.isMuted,
       createdAt: editing.createdAt,
@@ -357,6 +400,7 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
       minutes: 8 * 60,
       durationMinutes: 60,
       reminders: settings.defaultPermanentReminders.slice(),
+      notify: settings.defaultPermanentReminders.length > 0,
       tag: 'moss',
       isMuted: false,
     };
@@ -478,13 +522,12 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
           fieldBlock('How long should it stay on the schedule?',
             'This is the block it occupies each time it appears — not how long the note lives. Permanent notes never expire.',
             durations),
-          fieldBlock('Reminders', 'Leave this empty and the note simply sits on your schedule without buzzing.',
-            reminderPicker(d, refresh, '', 'Silent. It appears on the schedule, nothing more.')),
+          notificationGate(d, refresh, '', []),
           fieldBlock('Colour', null, tagPicker(d, refresh)),
           fieldBlock('Anything else?', 'Optional. Shows under the note on your schedule.', detailsField(d)),
           summaryCard('leaf',
             `${recurrenceSummary(d.recurrence)} at ${formatMinutes(d.minutes)}`,
-            `Holds ${formatDuration(d.durationMinutes)} · never expires`),
+            `Holds ${formatDuration(d.durationMinutes)} · ${d.notify && d.reminders.length ? 'will alert you' : 'silent'} · never expires`),
         );
       },
     },
@@ -506,7 +549,7 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
         startDate: d.startDate,
         startMinutes: d.minutes,
         durationMinutes: d.durationMinutes,
-        reminders: d.reminders,
+        reminders: d.notify ? d.reminders : [],
         tag: d.tag,
         isMuted: d.isMuted,
         createdAt: d.createdAt,

@@ -228,6 +228,98 @@ struct ReminderPicker: View {
     }
 }
 
+/// The first question about notifications is whether there should be any at
+/// all. Everything else stays hidden until the answer is yes, so a note you
+/// never want to hear from takes one tap rather than deselecting a row of chips.
+struct NotificationGate<Extras: View>: View {
+
+    @Binding var notify: Bool
+    @Binding var reminders: [ReminderLead]
+    var tint: Color
+    @ViewBuilder var extras: () -> Extras
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            question
+
+            if notify {
+                FieldBlock(
+                    title: "Nudge me",
+                    caption: "Each one becomes its own alert. Stack as many as you like."
+                ) {
+                    ReminderPicker(
+                        selection: $reminders,
+                        tint: tint,
+                        emptyMessage: "Nothing picked yet — choose at least one, or say \"No, stay silent\" above."
+                    )
+                }
+                extras()
+            } else {
+                silentNotice
+            }
+        }
+        .animation(Motion.settle, value: notify)
+    }
+
+    private var question: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Should this note notify you?")
+                    .font(TypeScale.heading(15))
+                    .foregroundStyle(Palette.ink)
+                Text("Say no and it still appears on your schedule — it just never buzzes.")
+                    .font(TypeScale.caption)
+                    .foregroundStyle(Palette.inkTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                SelectChip(title: "Yes, notify me", symbol: "bell", isSelected: notify, tint: tint) {
+                    notify = true
+                }
+                SelectChip(title: "No, stay silent", symbol: "bell.slash", isSelected: !notify, tint: tint) {
+                    notify = false
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
+    }
+
+    private var silentNotice: some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: "bell.slash")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(tint)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Silent")
+                    .font(TypeScale.bodyEmphasis)
+                    .foregroundStyle(Palette.ink)
+                Text("No alerts of any kind for this one.")
+                    .font(TypeScale.caption)
+                    .foregroundStyle(Palette.inkSecondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: Metrics.smallRadius, style: .continuous)
+                .fill(tint.opacity(0.13))
+        )
+    }
+}
+
+extension NotificationGate where Extras == EmptyView {
+    init(notify: Binding<Bool>, reminders: Binding<[ReminderLead]>, tint: Color) {
+        self.init(notify: notify, reminders: reminders, tint: tint, extras: { EmptyView() })
+    }
+}
+
 /// A labelled row of mutually exclusive chips.
 struct ChipRow<Option: Hashable & Identifiable>: View {
     var options: [Option]

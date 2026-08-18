@@ -104,6 +104,12 @@ app asks three different questions: *which days it appears*, *what time of day*,
 and *how long it holds its place*. It then repeats forever. Nothing removes it
 but you.
 
+**Every note is asked whether it should notify you at all.** Answer no and the
+note is silent: it still sits on your schedule and still goes to Calendar, it
+just never buzzes. Answer yes and the nudge options open up — as many lead times
+as you like, each becoming its own alert, plus a last word when a temporary note
+expires.
+
 **The schedule** is a view, not a store. Every day is assembled from the two
 notes sections each time you look at it, so it can never fall out of step with
 what you actually wrote.
@@ -122,7 +128,8 @@ range widens by itself if you place a note outside it. Tapping anything opens
 the note behind it.
 
 **Temporary notes** — grouped into past due / today / tomorrow / this week /
-later / done, each showing its countdown, its reminders, and when it will clear.
+later / done, each showing its countdown, its reminders (or that it is silent),
+and when it will clear.
 
 **Permanent notes** — six recurrence patterns (every day, weekdays, weekends,
 chosen days, every N days, a day of the month), each with a start date, a time
@@ -171,8 +178,8 @@ MySchedule/               the native SwiftUI version (needs a Mac)
 MySchedule.xcodeproj/
 
 test/
-  run.mjs                 45 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             29 checks driving the real app in a real browser
+  run.mjs                 50 logic tests — recurrence, expiry, sweep, ICS
+  browser.mjs             38 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -197,13 +204,15 @@ npm run shots        # browser suite + screenshots of every screen
 
 `test/run.mjs` covers the parts worth being sure about: recurrence across
 daylight-saving boundaries, the last-day-of-a-short-month fallback, expiry and
-lingering, the sweep, lossy loading of a corrupt record, and the generated
-calendar file down to its line endings and escaping.
+lingering, the sweep, lossy loading of a corrupt record, silent notes staying
+silent everywhere, and the generated calendar file down to its line endings and
+escaping.
 
 `test/browser.mjs` drives the actual app in Chromium at iPhone dimensions —
-walking both wizards end to end, checking persistence across a reload, dark
-mode, and that it still works with the network switched off. It fails on any
-console error.
+walking both wizards end to end, saving a note as silent and re-opening it to
+confirm the answer survives the round trip, checking persistence across a
+reload, dark mode, and that it still works with the network switched off. It
+fails on any console error.
 
 ---
 
