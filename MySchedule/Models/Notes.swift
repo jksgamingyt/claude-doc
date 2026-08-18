@@ -534,13 +534,7 @@ struct PermanentNote: Identifiable, Codable, Hashable {
 
     func timeSummary(calendar: Calendar) -> String {
         if isAllDay { return "All day" }
-        let hour = startMinutes / 60
-        let minute = startMinutes % 60
-        var components = DateComponents()
-        components.hour = hour
-        components.minute = minute
-        let reference = calendar.date(from: components) ?? Date()
-        let formatted = TimeFormatting.clock.string(from: reference)
+        let formatted = TimeFormatting.time(fromMinutes: startMinutes, calendar: calendar)
         return "\(formatted) · \(DurationFormatting.describe(minutes: durationMinutes))"
     }
 }

@@ -425,6 +425,14 @@ final class ScheduleStore: ObservableObject {
     func sweep(now: Date = Date()) -> SweepReport {
         var report = SweepReport(at: now)
 
+        // Trim before filing, not after. A note is archived under the moment it
+        // actually expired, so if the app has gone unopened for longer than the
+        // retention window, doing this the other way round would file a note and
+        // delete it in the same pass — while still announcing it in the banner.
+        let before = archive.count
+        trimArchive()
+        report.trimmedArchiveCount = before - archive.count
+
         let expired = temporaryNotes.filter { $0.isExpired(asOf: now) }
         if !expired.isEmpty {
             for note in expired {
@@ -436,10 +444,6 @@ final class ScheduleStore: ObservableObject {
             let expiredIDs = Set(expired.map { $0.id })
             temporaryNotes.removeAll { expiredIDs.contains($0.id) }
         }
-
-        let before = archive.count
-        trimArchive()
-        report.trimmedArchiveCount = before - archive.count
 
         settings.lastSweepAt = now
         if !report.isEmpty {
