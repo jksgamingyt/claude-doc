@@ -496,6 +496,37 @@ test('export skips notes that are done or already past', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Reminder slots (the two nudge sliders)
+// ---------------------------------------------------------------------------
+
+test('reminders split into two slots, furthest ahead first', () => {
+  assert.deepEqual(M.splitReminders([60, 1440]), { nudgeA: 1440, nudgeB: 60 });
+  assert.deepEqual(M.splitReminders([30]), { nudgeA: 30, nudgeB: null });
+  assert.deepEqual(M.splitReminders([]), { nudgeA: null, nudgeB: null });
+});
+
+test('slots rejoin without Offs or duplicates, furthest ahead first', () => {
+  assert.deepEqual(M.joinNudges(1440, 60), [1440, 60]);
+  assert.deepEqual(M.joinNudges(null, 60), [60]);
+  assert.deepEqual(M.joinNudges(null, null), []);
+  assert.deepEqual(M.joinNudges(60, 60), [60], 'the same value twice is one reminder');
+  assert.deepEqual(M.joinNudges(60, 1440), [1440, 60], 'order of the slots does not matter');
+});
+
+test('splitting then rejoining is lossless for two reminders', () => {
+  const original = [10080, 15];
+  const { nudgeA, nudgeB } = M.splitReminders(original);
+  assert.deepEqual(M.joinNudges(nudgeA, nudgeB), original);
+});
+
+test('Off is the first stop on the nudge track', () => {
+  assert.equal(M.NUDGE_OPTIONS[0], null);
+  assert.equal(M.nudgeLabel(M.NUDGE_OPTIONS[0]), 'Off');
+  assert.equal(M.nudgeLabel(1440), '1 day before');
+  assert.equal(M.nudgeLabel(0), 'Right on time');
+});
+
+// ---------------------------------------------------------------------------
 // Silent notes
 // ---------------------------------------------------------------------------
 

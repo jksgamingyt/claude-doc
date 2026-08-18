@@ -104,6 +104,12 @@ app asks three different questions: *which days it appears*, *what time of day*,
 and *how long it holds its place*. It then repeats forever. Nothing removes it
 but you.
 
+**Options are set on sliders, not rows of buttons.** Which day, what time, how
+long it lingers, how often it repeats, which day of the month, how long it
+holds — each one is a single track you slide, with the choice read out above it.
+The exact date and time pickers are still there underneath for anything
+off-grid.
+
 **Every note is asked whether it should notify you at all.** Answer no and the
 note is silent: it still sits on your schedule and still goes to Calendar, it
 just never buzzes. Answer yes and the nudge options open up — as many lead times
@@ -148,7 +154,8 @@ backup file you can send yourself, week-starts-on-Monday, and a plain-language
 
 There is also a complete **native SwiftUI version** in `MySchedule/` and
 `MySchedule.xcodeproj`. Same model, same design, and it can schedule real
-notifications by itself with no calendar detour. It needs a Mac with Xcode 15+
+notifications by itself with no calendar detour. It is one revision behind on
+presentation: its option pickers are still chips rather than sliders. It needs a Mac with Xcode 15+
 to build — see the section below on the repository layout. Nothing about the web
 app depends on it; keep it or ignore it.
 

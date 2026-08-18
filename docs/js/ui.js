@@ -207,6 +207,80 @@ export function chip(label, selected, onClick, { tone = '', iconName = null } = 
   );
 }
 
+/**
+ * A one-of-N chooser on a track instead of a row of buttons.
+ *
+ * The value updates live while dragging but the surrounding screen is only
+ * rebuilt on release — rebuilding mid-drag would tear the slider out from under
+ * the finger holding it.
+ *
+ *   options   the values, in the order they sit on the track
+ *   value     the currently selected one
+ *   format    value -> the text shown above the track
+ *   onInput   called on every movement; update your draft here
+ *   onCommit  called once on release; refresh the screen here
+ */
+export function optionSlider({
+  options,
+  value,
+  format,
+  onInput,
+  onCommit,
+  tone = '',
+  label = '',
+  ariaLabel,
+  showTicks = true,
+}) {
+  const startIndex = Math.max(0, options.findIndex((option) => option === value));
+
+  const readout = h('span.slider-value', { text: format(options[startIndex], startIndex) });
+  const input = h('input.slider', {
+    type: 'range',
+    min: '0',
+    max: String(Math.max(0, options.length - 1)),
+    step: '1',
+    value: String(startIndex),
+    'aria-label': ariaLabel || label || 'Choose an option',
+    'aria-valuetext': format(options[startIndex], startIndex),
+  });
+
+  function paint(index) {
+    const span = Math.max(1, options.length - 1);
+    input.style.setProperty('--fill', `${(index / span) * 100}%`);
+  }
+
+  input.addEventListener('input', () => {
+    const index = Number(input.value);
+    const text = format(options[index], index);
+    readout.textContent = text;
+    input.setAttribute('aria-valuetext', text);
+    paint(index);
+    if (onInput) onInput(options[index], index);
+  });
+
+  input.addEventListener('change', () => {
+    if (onCommit) onCommit(options[Number(input.value)], Number(input.value));
+  });
+
+  paint(startIndex);
+
+  // Ticks only help while they stay countable.
+  const ticks = showTicks && options.length <= 9
+    ? h('div.slider-ticks', ...options.map(() => h('i')))
+    : null;
+
+  return h(`div.slider-field${tone ? '.' + tone : ''}`,
+    h('div.slider-head',
+      label && h('span.slider-label', { text: label }),
+      readout),
+    input,
+    ticks,
+    h('div.slider-ends',
+      h('span', { text: format(options[0], 0) }),
+      h('span', { text: format(options[options.length - 1], options.length - 1) })),
+  );
+}
+
 export function toggleRow(label, help, value, onChange) {
   return h('div.toggle-row',
     h('div',

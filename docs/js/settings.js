@@ -2,7 +2,8 @@
 // account of what a web app can and cannot do on an iPhone.
 
 import {
-  REMINDER_PRESETS, LINGERS, LINGER_KEYS, TAGS,
+  LINGERS, LINGER_KEYS, TAGS,
+  NUDGE_OPTIONS, nudgeLabel, splitReminders, joinNudges,
   leadShort, leadLong, formatFull, formatMonthDay, dayName,
 } from './model.js';
 import { buildICS, exportable } from './ics.js';
@@ -11,7 +12,7 @@ import {
   permission, requestPermission, notificationsSupported, isInstalled,
 } from './notify.js';
 import {
-  h, mount, icon, pill, chip, toggleRow, selectRow, emptyState,
+  h, mount, icon, pill, chip, toggleRow, selectRow, optionSlider, emptyState,
   openSheet, confirmSheet, toast, offerFile,
 } from './ui.js';
 
@@ -87,17 +88,28 @@ export function settingsScreen(app) {
   }
 
   function reminderChips(key, tone) {
-    const row = h('div.chips');
-    for (const minutes of REMINDER_PRESETS) {
-      const on = state.settings[key].includes(minutes);
-      row.appendChild(chip(leadShort(minutes), on, () => {
-        const next = on
-          ? state.settings[key].filter((m) => m !== minutes)
-          : [...state.settings[key], minutes].sort((a, b) => b - a);
-        set(key, next);
-      }, { tone }));
-    }
-    return row;
+    const slots = splitReminders(state.settings[key]);
+    const commit = () => set(key, joinNudges(slots.nudgeA, slots.nudgeB));
+
+    return h('div.slider-stack',
+      optionSlider({
+        options: NUDGE_OPTIONS,
+        value: slots.nudgeA,
+        format: nudgeLabel,
+        label: 'Nudge me',
+        tone,
+        onInput: (value) => { slots.nudgeA = value; },
+        onCommit: commit,
+      }),
+      optionSlider({
+        options: NUDGE_OPTIONS,
+        value: slots.nudgeB,
+        format: nudgeLabel,
+        label: 'And again',
+        tone,
+        onInput: (value) => { slots.nudgeB = value; },
+        onCommit: commit,
+      }));
   }
 
   // --- notifications
@@ -177,9 +189,14 @@ export function settingsScreen(app) {
   data.appendChild(h('button.rowlink', {
     type: 'button', onclick: () => openArchive(app),
   }, h('span', 'Recently cleared'), h('span.faint', String(state.archive.length))));
-  data.appendChild(selectRow('Keep cleared notes for', String(state.settings.archiveRetentionDays),
-    [['7', '7 days'], ['30', '30 days'], ['90', '90 days'], ['0', 'Forever']],
-    (value) => set('archiveRetentionDays', Number(value))));
+  data.appendChild(h('div.pad', optionSlider({
+    options: [7, 30, 90, 0],
+    value: state.settings.archiveRetentionDays,
+    format: (days) => (days === 0 ? 'Forever' : `${days} days`),
+    label: 'Keep cleared notes for',
+    onInput: (days) => { state.settings.archiveRetentionDays = days; },
+    onCommit: (days) => set('archiveRetentionDays', days),
+  })));
   data.appendChild(h('div.pad',
     h('button.btn.soft.wide', {
       type: 'button',

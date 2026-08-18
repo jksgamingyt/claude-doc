@@ -671,6 +671,105 @@ input[type='date'], input[type='time'], input[type='number'] {
 }
 .daynums button[aria-pressed='true'] { background: var(--moss); border-color: transparent; color: var(--canvas); }
 
+/* ----------------------------------------------------------------- sliders */
+
+.slider-field { display: block; }
+
+.slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.slider-label { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+
+.slider-value {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--moss);
+  margin-left: auto;
+  text-align: right;
+}
+
+.slider-field.clay .slider-value { color: var(--clay); }
+
+input.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  background: transparent;
+  display: block;
+}
+
+/* WebKit — the one that matters on iOS */
+input.slider::-webkit-slider-runnable-track {
+  height: 7px;
+  border-radius: 999px;
+  background:
+    linear-gradient(to right, var(--moss) 0 var(--fill, 0%), var(--hairline) var(--fill, 0%) 100%);
+}
+
+input.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--card-raised);
+  border: 2.5px solid var(--moss);
+  box-shadow: 0 2px 7px var(--shadow-strong);
+  margin-top: -10.5px;
+  cursor: grab;
+}
+
+input.slider:active::-webkit-slider-thumb { cursor: grabbing; transform: scale(1.06); }
+
+.slider-field.clay input.slider::-webkit-slider-runnable-track {
+  background:
+    linear-gradient(to right, var(--clay) 0 var(--fill, 0%), var(--hairline) var(--fill, 0%) 100%);
+}
+.slider-field.clay input.slider::-webkit-slider-thumb { border-color: var(--clay); }
+
+/* Firefox */
+input.slider::-moz-range-track { height: 7px; border-radius: 999px; background: var(--hairline); }
+input.slider::-moz-range-progress { height: 7px; border-radius: 999px; background: var(--moss); }
+input.slider::-moz-range-thumb {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--card-raised); border: 2.5px solid var(--moss);
+  box-shadow: 0 2px 7px var(--shadow-strong);
+}
+.slider-field.clay input.slider::-moz-range-progress { background: var(--clay); }
+.slider-field.clay input.slider::-moz-range-thumb { border-color: var(--clay); }
+
+input.slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--sky); outline-offset: 2px; }
+
+.slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 12px;
+  margin-top: -4px;
+}
+
+.slider-ticks i {
+  width: 3px; height: 3px; border-radius: 50%;
+  background: var(--ink-3); opacity: 0.45; display: block;
+}
+
+.slider-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.slider-stack > * + * { margin-top: 18px; }
+
 /* ------------------------------------------------------------------ welcome */
 
 .welcome {

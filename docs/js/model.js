@@ -49,6 +49,34 @@ export function leadLong(minutes) {
   return minutes === 0 ? 'Right on time' : `${leadShort(minutes)} before`;
 }
 
+/**
+ * Reminders as two slots rather than a free-form set.
+ *
+ * A slider picks one value, so the stacked "nudge me, then nudge me again"
+ * shape is expressed as two sliders with an Off position at one end. `null`
+ * is that Off position.
+ */
+export const NUDGE_OPTIONS = [null, ...REMINDER_PRESETS];
+
+export function nudgeLabel(minutes) {
+  return minutes === null || minutes === undefined ? 'Off' : leadLong(minutes);
+}
+
+/** Existing reminders -> the two slots, furthest-ahead first. */
+export function splitReminders(reminders) {
+  const sorted = [...(reminders || [])].sort((a, b) => b - a);
+  return {
+    nudgeA: sorted.length > 0 ? sorted[0] : null,
+    nudgeB: sorted.length > 1 ? sorted[1] : null,
+  };
+}
+
+/** The two slots -> a clean reminder list: no Offs, no duplicates, furthest first. */
+export function joinNudges(a, b) {
+  const picked = [a, b].filter((value) => value !== null && value !== undefined);
+  return Array.from(new Set(picked)).sort((x, y) => y - x);
+}
+
 // ---------------------------------------------------------------------------
 // Linger: how long a temporary note outlives its deadline
 // ---------------------------------------------------------------------------

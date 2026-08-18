@@ -90,6 +90,28 @@ function check(name, ok, detail = '') {
   checks.push({ name, ok, detail });
 }
 
+/** Move the slider carrying `label` to a stop, as a real drag would. */
+async function setSlider(label, index) {
+  await page.evaluate(({ label, index }) => {
+    const field = [...document.querySelectorAll('.slider-field')]
+      .find((f) => f.querySelector('.slider-label')?.textContent === label);
+    if (!field) throw new Error(`no slider labelled "${label}"`);
+    const input = field.querySelector('input.slider');
+    input.value = String(index);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { label, index });
+  await page.waitForTimeout(200);
+}
+
+async function sliderReadout(label) {
+  return page.evaluate((wanted) => {
+    const field = [...document.querySelectorAll('.slider-field')]
+      .find((f) => f.querySelector('.slider-label')?.textContent === wanted);
+    return field ? field.querySelector('.slider-value').textContent : null;
+  }, label);
+}
+
 // ---------------------------------------------------------------------------
 
 await page.goto(base, { waitUntil: 'networkidle' });
@@ -123,19 +145,44 @@ check('wizard opens on Enter', await page.locator('.sheet').count() === 1);
 check('wizard step 1 asks for the day', await page.getByText('Which day is this due?').count() > 0);
 await shot('wizard-day');
 
-await tapText('Tomorrow');
+check('the day step is a slider, not a row of buttons',
+  await page.locator('.sheet-body input.slider').count() === 1);
+await setSlider('How far off?', 1);
+check('the day slider reads back what it selected',
+  (await sliderReadout('How far off?')) === 'Tomorrow',
+  String(await sliderReadout('How far off?')));
+
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('wizard step 2 asks for the time', await page.getByText('What time is it due?').count() > 0);
+await setSlider('Time of day', 4);
+check('the time slider reads back what it selected',
+  (await sliderReadout('Time of day')) === '6:00 PM',
+  String(await sliderReadout('Time of day')));
 await shot('wizard-time');
 
-await page.locator('.sheet-body .chip', { hasText: '6:00 PM' }).first().click();
-await page.waitForTimeout(150);
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('wizard step 3 asks about expiry', await page.getByText('When should it disappear?').count() > 0);
-check('reminder defaults are preselected',
-  await page.locator('.sheet-body .chip[aria-pressed="true"]').count() >= 2);
+check('reminder defaults land on the nudge sliders',
+  (await sliderReadout('Nudge me')) === '1 day before'
+  && (await sliderReadout('And again')) === '1 hr before',
+  `${await sliderReadout('Nudge me')} / ${await sliderReadout('And again')}`);
+
+// Dragging must update the readout without rebuilding the control underneath.
+const drag = await page.evaluate(() => {
+  const field = [...document.querySelectorAll('.slider-field')]
+    .find((f) => f.querySelector('.slider-label')?.textContent === 'Clears');
+  const input = field.querySelector('input.slider');
+  input.value = '3';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  return {
+    readout: field.querySelector('.slider-value').textContent,
+    sameNode: document.contains(input) && input === field.querySelector('input.slider'),
+  };
+});
+check('dragging updates the readout live', drag.readout === 'End of day', drag.readout);
+check('dragging does not rebuild the slider mid-drag', drag.sameNode === true);
 await shot('wizard-expiry');
 
 await page.locator('.sheet-foot .btn:not(.soft)').click();
@@ -154,12 +201,27 @@ await page.waitForTimeout(300);
 check('permanent wizard asks which days', await page.getByText('Which days should it appear?').count() > 0);
 await shot('perm-wizard-days');
 
-await tapText('Weekdays');
+// The biggest replacement: 31 day-of-month buttons become one track.
+await setSlider('Pattern', 5);
+check('picking a monthly pattern offers a day-of-month slider',
+  (await sliderReadout('Day of the month')) === 'Day 1',
+  String(await sliderReadout('Day of the month')));
+await setSlider('Day of the month', 14);
+check('the day-of-month slider reads back what it selected',
+  (await sliderReadout('Day of the month')) === 'Day 15',
+  String(await sliderReadout('Day of the month')));
+
+await setSlider('Pattern', 4);
+check('picking every-N-days offers an interval slider',
+  (await sliderReadout('Interval')) !== null, String(await sliderReadout('Interval')));
+
+await setSlider('Pattern', 1);
+check('the recurrence slider reads back what it selected',
+  (await sliderReadout('Pattern')) === 'Weekdays', String(await sliderReadout('Pattern')));
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('permanent wizard asks the time of day', await page.getByText('What time of day?').count() > 0);
-await page.locator('.sheet-body .chip', { hasText: '7:00 AM' }).first().click();
-await page.waitForTimeout(150);
+await setSlider('Time of day', 0);
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('permanent wizard asks how long it holds',
@@ -259,6 +321,8 @@ await page.waitForTimeout(200);
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(250);
 
+check('day-of-month and interval are sliders too',
+  await page.locator('input.slider').count() > 0);
 check('the wizard asks whether to notify at all',
   await page.getByText('Should this note notify you?').count() > 0);
 check('reminder options are shown while the answer is yes',

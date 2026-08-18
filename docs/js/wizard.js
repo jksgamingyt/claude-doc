@@ -6,7 +6,8 @@
 // place. Nothing is saved until the last step.
 
 import {
-  TAGS, TAG_KEYS, REMINDER_PRESETS, LINGERS, LINGER_KEYS, RECURRENCE_KINDS,
+  TAGS, TAG_KEYS, LINGERS, LINGER_KEYS, RECURRENCE_KINDS,
+  NUDGE_OPTIONS, nudgeLabel, splitReminders, joinNudges,
   leadShort, leadLong, expiryFor, defaultRecurrence, recurrenceSummary,
   formatFull, formatMinutes, formatMonthDay, formatDayHeadline, formatDuration,
   countdown, dayName, startOfDay, addDays, weekdayNarrow, minutesOfDay,
@@ -14,7 +15,8 @@ import {
 } from './model.js';
 import { nextOccurrence } from './engine.js';
 import {
-  h, mount, icon, chip, fieldBlock, summaryCard, toggleRow, openSheet, toast,
+  h, mount, icon, chip, fieldBlock, summaryCard, toggleRow, optionSlider,
+  openSheet, toast,
 } from './ui.js';
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,18 @@ const DAY_SHORTCUTS = [
   { label: 'Next week', days: 7 },
   { label: 'In a month', days: 30 },
 ];
+
+const DAY_OFFSETS = DAY_SHORTCUTS.map((item) => item.days);
+
+/** The stop a slider thumb should rest on when the real value is off-grid. */
+function nearestStop(value, stops) {
+  let best = stops[0];
+  for (const stop of stops) {
+    if (Math.abs(stop - value) < Math.abs(best - value)) best = stop;
+  }
+  return best;
+}
+const dayOffsetLabel = (days) => (DAY_SHORTCUTS.find((item) => item.days === days) || {}).label || '';
 
 const TIME_SHORTCUTS = [7 * 60, 9 * 60, 12 * 60, 15 * 60, 18 * 60, 21 * 60];
 
@@ -123,29 +137,39 @@ function runWizard({ title, subtitle, tone, steps, draft, onFinish, finishLabel 
   });
 }
 
-function reminderPicker(draft, refresh, tone, emptyMessage) {
-  const chips = h('div.chips');
-  for (const minutes of REMINDER_PRESETS) {
-    const on = draft.reminders.includes(minutes);
-    chips.appendChild(chip(leadShort(minutes), on, () => {
-      draft.reminders = on
-        ? draft.reminders.filter((m) => m !== minutes)
-        : [...draft.reminders, minutes].sort((a, b) => b - a);
-      refresh();
-    }, { tone }));
+/** Two slots, each on its own track. Off sits at the left-hand end of both. */
+function nudgeSliders(draft, refresh, tone) {
+  const chosen = joinNudges(draft.nudgeA, draft.nudgeB);
+  let summary;
+  if (!chosen.length) {
+    summary = 'Nothing picked yet — slide one off Off, or say "No, stay silent" above.';
+  } else if (chosen.length === 1) {
+    summary = `You'll be nudged ${nudgeLabel(chosen[0]).toLowerCase()}.`;
+  } else {
+    summary = `You'll be nudged ${nudgeLabel(chosen[0]).toLowerCase()}, then ${nudgeLabel(chosen[1]).toLowerCase()}.`;
   }
 
-  const sorted = draft.reminders.slice().sort((a, b) => b - a);
-  const words = sorted.map((m) => leadLong(m).toLowerCase());
-  let summary;
-  if (!sorted.length) summary = emptyMessage;
-  else if (words.length === 1) summary = `You'll be nudged ${words[0]}.`;
-  else summary = `You'll be nudged ${words.slice(0, -1).join(', ')}, then ${words[words.length - 1]}.`;
-
-  return h('div',
-    chips,
-    h('div.small.muted', { style: { marginTop: '10px', display: 'flex', gap: '6px' } },
-      icon(sorted.length ? 'bell' : 'bellOff', 13), summary),
+  return h('div.slider-stack',
+    optionSlider({
+      options: NUDGE_OPTIONS,
+      value: draft.nudgeA,
+      format: nudgeLabel,
+      label: 'Nudge me',
+      tone,
+      onInput: (value) => { draft.nudgeA = value; },
+      onCommit: refresh,
+    }),
+    optionSlider({
+      options: NUDGE_OPTIONS,
+      value: draft.nudgeB,
+      format: nudgeLabel,
+      label: 'And again',
+      tone,
+      onInput: (value) => { draft.nudgeB = value; },
+      onCommit: refresh,
+    }),
+    h('div.small.muted', { style: { display: 'flex', gap: '6px', alignItems: 'flex-start' } },
+      icon(chosen.length ? 'bell' : 'bellOff', 13), summary),
   );
 }
 
@@ -176,9 +200,8 @@ function notificationGate(draft, refresh, tone, extras) {
   }
 
   return h('div', question,
-    fieldBlock('Nudge me', 'Each one becomes its own alert. Stack as many as you like.',
-      reminderPicker(draft, refresh, tone,
-        'Nothing picked yet — choose at least one, or say "No, stay silent" above.')),
+    fieldBlock('When should it reach you?', 'Two nudges, each set on its own track.',
+      nudgeSliders(draft, refresh, tone)),
     ...(extras || []));
 }
 
@@ -212,7 +235,9 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
   const now = Date.now();
   const hour = new Date(now).getHours();
   const defaultDay = hour < 20 ? startOfDay(now) : addDays(startOfDay(now), 1);
-  const defaultMinutes = hour < 20 ? Math.min(21 * 60, (hour + 2) * 60) : 9 * 60;
+  // Land on a real slider stop, so the thumb and the value agree from the start.
+  const target = hour < 20 ? Math.min(21 * 60, (hour + 2) * 60) : 9 * 60;
+  const defaultMinutes = TIME_SHORTCUTS.find((m) => m >= target) || TIME_SHORTCUTS[TIME_SHORTCUTS.length - 1];
 
   const draft = editing
     ? {
@@ -220,11 +245,14 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       title: editing.title,
       details: editing.details,
       day: startOfDay(editing.due),
+      dayStop: 0,
       minutes: minutesOfDay(editing.due),
+      timeStop: nearestStop(minutesOfDay(editing.due), TIME_SHORTCUTS),
       isAllDay: editing.isAllDay,
       linger: editing.linger,
       reminders: editing.reminders.slice(),
       notifyOnExpiry: editing.notifyOnExpiry,
+      ...splitReminders(editing.reminders),
       // A note with no reminders and no expiry alert was answered "no".
       notify: editing.reminders.length > 0 || editing.notifyOnExpiry,
       tag: editing.tag,
@@ -236,11 +264,14 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       title: seed || '',
       details: '',
       day: defaultDay,
+      dayStop: hour < 20 ? 0 : 1,
       minutes: defaultMinutes,
+      timeStop: defaultMinutes,
       isAllDay: false,
       linger: settings.defaultLinger,
       reminders: settings.defaultTemporaryReminders.slice(),
       notifyOnExpiry: settings.notifyOnExpiry,
+      ...splitReminders(settings.defaultTemporaryReminders),
       notify: true,
       tag: 'clay',
     };
@@ -250,17 +281,21 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
   const steps = [
     {
       render(d, refresh) {
-        const shortcuts = h('div.chips');
-        for (const item of DAY_SHORTCUTS) {
-          const target = addDays(startOfDay(Date.now()), item.days);
-          shortcuts.appendChild(chip(item.label, d.day === target, () => {
-            d.day = target;
-            refresh();
-          }, { tone: 'clay' }));
-        }
+        const shortcuts = optionSlider({
+          options: DAY_OFFSETS,
+          value: d.dayStop,
+          format: dayOffsetLabel,
+          label: 'How far off?',
+          tone: 'clay',
+          onInput: (days) => {
+            d.dayStop = days;
+            d.day = addDays(startOfDay(Date.now()), days);
+          },
+          onCommit: refresh,
+        });
 
         return h('div',
-          fieldBlock('Which day is this due?', 'Pick a shortcut or choose a date.',
+          fieldBlock('Which day is this due?', 'Slide to a shortcut, or set an exact date below.',
             shortcuts,
             h('div', { style: { marginTop: '12px' } },
               h('input', {
@@ -279,14 +314,18 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const shortcuts = h('div.chips');
-        for (const minutes of TIME_SHORTCUTS) {
-          shortcuts.appendChild(chip(formatMinutes(minutes), !d.isAllDay && d.minutes === minutes, () => {
+        const shortcuts = optionSlider({
+          options: TIME_SHORTCUTS,
+          value: d.timeStop,
+          format: formatMinutes,
+          label: 'Time of day',
+          tone: 'clay',
+          onInput: (minutes) => {
+            d.timeStop = minutes;
             d.minutes = minutes;
-            d.isAllDay = false;
-            refresh();
-          }, { tone: 'clay' }));
-        }
+          },
+          onCommit: refresh,
+        });
 
         return h('div',
           fieldBlock('What time is it due?',
@@ -313,13 +352,15 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const lingerChips = h('div.chips');
-        for (const key of LINGER_KEYS) {
-          lingerChips.appendChild(chip(LINGERS[key].short, d.linger === key, () => {
-            d.linger = key;
-            refresh();
-          }, { tone: 'clay' }));
-        }
+        const lingerChips = optionSlider({
+          options: LINGER_KEYS,
+          value: d.linger,
+          format: (key) => LINGERS[key].short,
+          label: 'Clears',
+          tone: 'clay',
+          onInput: (key) => { d.linger = key; },
+          onCommit: refresh,
+        });
 
         const expiry = expiryFor(dueOf(d), d.linger);
         const expiryText = d.linger === 'atDue'
@@ -340,7 +381,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
           fieldBlock('Colour', null, tagPicker(d, refresh)),
           fieldBlock('Anything else?', 'Optional. Shows under the note on your schedule.', detailsField(d)),
           summaryCard('check', `Due ${formatFull(dueOf(d))}`,
-            `${expiryText} ${d.notify && (d.reminders.length || d.notifyOnExpiry) ? 'Alerts on.' : 'Silent.'}`, 'clay'),
+            `${expiryText} ${d.notify && (joinNudges(d.nudgeA, d.nudgeB).length || d.notifyOnExpiry) ? 'Alerts on.' : 'Silent.'}`, 'clay'),
         );
       },
     },
@@ -361,7 +402,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
         due: dueOf(d),
         isAllDay: d.isAllDay,
         linger: d.linger,
-        reminders: d.notify ? d.reminders : [],
+        reminders: d.notify ? joinNudges(d.nudgeA, d.nudgeB) : [],
         notifyOnExpiry: d.notify ? d.notifyOnExpiry : false,
         tag: d.tag,
         createdAt: d.createdAt,
@@ -385,8 +426,9 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
       recurrence: JSON.parse(JSON.stringify(editing.recurrence)),
       startDate: editing.startDate,
       minutes: editing.startMinutes,
+      timeStop: nearestStop(editing.startMinutes, TIME_SHORTCUTS),
       durationMinutes: editing.durationMinutes,
-      reminders: editing.reminders.slice(),
+      ...splitReminders(editing.reminders),
       notify: editing.reminders.length > 0,
       tag: editing.tag,
       isMuted: editing.isMuted,
@@ -397,9 +439,10 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
       details: '',
       recurrence: defaultRecurrence(),
       startDate: startOfDay(Date.now()),
-      minutes: 8 * 60,
+      minutes: 9 * 60,
+      timeStop: 9 * 60,
       durationMinutes: 60,
-      reminders: settings.defaultPermanentReminders.slice(),
+      ...splitReminders(settings.defaultPermanentReminders),
       notify: settings.defaultPermanentReminders.length > 0,
       tag: 'moss',
       isMuted: false,
@@ -416,13 +459,14 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
     {
       guard: (d) => d.recurrence.kind !== 'selectedDays' || d.recurrence.weekdays.length > 0,
       render(d, refresh) {
-        const kinds = h('div.chips');
-        for (const [key, meta] of Object.entries(RECURRENCE_KINDS)) {
-          kinds.appendChild(chip(meta.label, d.recurrence.kind === key, () => {
-            d.recurrence.kind = key;
-            refresh();
-          }, { iconName: meta.icon }));
-        }
+        const kinds = optionSlider({
+          options: Object.keys(RECURRENCE_KINDS),
+          value: d.recurrence.kind,
+          format: (key) => RECURRENCE_KINDS[key].label,
+          label: 'Pattern',
+          onInput: (key) => { d.recurrence.kind = key; },
+          onCommit: refresh,
+        });
 
         let extra = null;
         if (d.recurrence.kind === 'selectedDays') {
@@ -440,24 +484,23 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
           extra = fieldBlock('Pick the days', null, days);
         } else if (d.recurrence.kind === 'everyNDays') {
           extra = fieldBlock('How often?', 'Counted from the start date below.',
-            h('input', {
-              type: 'number', min: '1', max: '60',
-              value: String(d.recurrence.interval),
-              'aria-label': 'Interval in days',
-              oninput: (event) => {
-                d.recurrence.interval = Math.max(1, Math.min(60, Number(event.target.value) || 1));
-              },
-              onchange: refresh,
+            optionSlider({
+              options: Array.from({ length: 30 }, (_, index) => index + 1),
+              value: d.recurrence.interval,
+              format: (n) => (n === 1 ? 'Every day' : `Every ${n} days`),
+              label: 'Interval',
+              onInput: (n) => { d.recurrence.interval = n; },
+              onCommit: refresh,
             }));
         } else if (d.recurrence.kind === 'dayOfMonth') {
-          const nums = h('div.daynums');
-          for (let n = 1; n <= 31; n += 1) {
-            nums.appendChild(h('button', {
-              type: 'button',
-              'aria-pressed': d.recurrence.dayOfMonth === n ? 'true' : 'false',
-              onclick: () => { d.recurrence.dayOfMonth = n; refresh(); },
-            }, String(n)));
-          }
+          const nums = optionSlider({
+            options: Array.from({ length: 31 }, (_, index) => index + 1),
+            value: d.recurrence.dayOfMonth,
+            format: (n) => `Day ${n}`,
+            label: 'Day of the month',
+            onInput: (n) => { d.recurrence.dayOfMonth = n; },
+            onCommit: refresh,
+          });
           extra = fieldBlock('Which day of the month?', 'Short months fall back to their last day.', nums);
         }
 
@@ -483,13 +526,17 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const shortcuts = h('div.chips');
-        for (const minutes of TIME_SHORTCUTS) {
-          shortcuts.appendChild(chip(formatMinutes(minutes), d.minutes === minutes, () => {
+        const shortcuts = optionSlider({
+          options: TIME_SHORTCUTS,
+          value: d.timeStop,
+          format: formatMinutes,
+          label: 'Time of day',
+          onInput: (minutes) => {
+            d.timeStop = minutes;
             d.minutes = minutes;
-            refresh();
-          }));
-        }
+          },
+          onCommit: refresh,
+        });
 
         return h('div',
           fieldBlock('What time of day?', 'Where the note sits on each day it appears.',
@@ -510,13 +557,14 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const durations = h('div.chips');
-        for (const minutes of DURATIONS) {
-          durations.appendChild(chip(formatDuration(minutes), d.durationMinutes === minutes, () => {
-            d.durationMinutes = minutes;
-            refresh();
-          }));
-        }
+        const durations = optionSlider({
+          options: DURATIONS,
+          value: d.durationMinutes,
+          format: formatDuration,
+          label: 'Holds for',
+          onInput: (minutes) => { d.durationMinutes = minutes; },
+          onCommit: refresh,
+        });
 
         return h('div',
           fieldBlock('How long should it stay on the schedule?',
@@ -527,7 +575,7 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
           fieldBlock('Anything else?', 'Optional. Shows under the note on your schedule.', detailsField(d)),
           summaryCard('leaf',
             `${recurrenceSummary(d.recurrence)} at ${formatMinutes(d.minutes)}`,
-            `Holds ${formatDuration(d.durationMinutes)} · ${d.notify && d.reminders.length ? 'will alert you' : 'silent'} · never expires`),
+            `Holds ${formatDuration(d.durationMinutes)} · ${d.notify && joinNudges(d.nudgeA, d.nudgeB).length ? 'will alert you' : 'silent'} · never expires`),
         );
       },
     },
@@ -549,7 +597,7 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
         startDate: d.startDate,
         startMinutes: d.minutes,
         durationMinutes: d.durationMinutes,
-        reminders: d.notify ? d.reminders : [],
+        reminders: d.notify ? joinNudges(d.nudgeA, d.nudgeB) : [],
         tag: d.tag,
         isMuted: d.isMuted,
         createdAt: d.createdAt,
