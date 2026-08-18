@@ -13,7 +13,8 @@ import sys
 import zlib
 
 SIZE = 1024
-SS = 2  # supersampling factor
+SS = 2      # supersampling factor
+SCALE = 1.0 # shrinks the leaf, for maskable icons that need a safe zone
 
 # --- palette -----------------------------------------------------------------
 BG_TOP = (0x10, 0x1F, 0x18)
@@ -190,7 +191,45 @@ def write_png(path, rows):
     return len(data)
 
 
+def configure(size, supersample, scale):
+    """Re-derive everything that depends on the canvas size."""
+    global SIZE, SS, SCALE, LEAF_H, LEAF_W, RADIUS, OFFSET, R2
+    global CENTRE, LEAF_CX, LEAF_CY, SHADOW_DX, SHADOW_DY, VEINS
+
+    SIZE = size
+    SS = supersample
+    SCALE = scale
+
+    unit = size / 1024.0
+    LEAF_H = 615.0 * unit * scale
+    LEAF_W = 338.0 * unit * scale
+
+    half_h = LEAF_H / 2.0
+    half_w = LEAF_W / 2.0
+    RADIUS = (half_h * half_h + half_w * half_w) / (2.0 * half_w)
+    OFFSET = RADIUS - half_w
+    R2 = RADIUS * RADIUS
+
+    CENTRE = size / 2.0
+    LEAF_CX = CENTRE
+    LEAF_CY = CENTRE + 6.0 * unit
+    SHADOW_DX = 26.0 * unit * scale
+    SHADOW_DY = 34.0 * unit * scale
+
+    VEINS = []
+    for index in range(3):
+        t = -0.17 + index * 0.19
+        y0 = t * LEAF_H
+        for direction in (-1.0, 1.0):
+            VEINS.append((y0, direction * (LEAF_W * 0.38), y0 + LEAF_H * 0.108))
+
+
 if __name__ == "__main__":
     target = sys.argv[1] if len(sys.argv) > 1 else "AppIcon.png"
+    size = int(sys.argv[2]) if len(sys.argv) > 2 else 1024
+    supersample = int(sys.argv[3]) if len(sys.argv) > 3 else 2
+    scale = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
+
+    configure(size, supersample, scale)
     written = write_png(target, render())
-    print("wrote %s (%d bytes, %dx%d)" % (target, written, SIZE, SIZE))
+    print("wrote %s (%d bytes, %dx%d, leaf scale %.2f)" % (target, written, size, size, scale))

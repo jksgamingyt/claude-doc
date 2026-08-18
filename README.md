@@ -3,25 +3,106 @@
 A personal scheduling app for iPhone. Two kinds of note feed one unified
 schedule; nothing is edited on the schedule directly.
 
-Built as a native SwiftUI app — no account, no server, no network. Everything
-lives in one JSON file on the phone.
+It installs to your Home Screen from Safari, runs entirely offline, and keeps
+everything on the phone — no account, no server, nothing uploaded. **No Mac
+required.**
+
+---
+
+## Put it on your iPhone
+
+Three steps, once. You need a browser on any computer for step 1, and the
+iPhone for step 3.
+
+### 1. Switch on hosting (one setting, on GitHub)
+
+Open **[Settings → Pages](../../settings/pages)** for this repository and set:
+
+| Field | Value |
+|---|---|
+| Source | **Deploy from a branch** |
+| Branch | `claude/myschedule-iphone-app-0qasc7` (or `main`, if you've merged) |
+| Folder | **`/docs`** |
+
+Press **Save**. GitHub builds it in about a minute.
+
+### 2. Get the address
+
+The same page then shows your URL. It will be:
+
+```
+https://<your-github-username>.github.io/claude-doc/
+```
+
+### 3. Install it (on the iPhone)
+
+1. Open that URL **in Safari** — it has to be Safari, not Chrome, because only
+   Safari can install to the Home Screen.
+2. Tap the **Share** button (the square with the arrow).
+3. Scroll down and tap **Add to Home Screen**, then **Add**.
+
+Done. MySchedule is now an icon on your Home Screen. It opens full screen with
+no browser bars, works with no signal, and keeps your notes even when Safari is
+closed.
+
+> **Install it properly, don't just bookmark it.** iOS treats a Home Screen app
+> better than a browser tab: it is the only way to get notifications at all, and
+> its storage is far less likely to be cleared.
+
+---
+
+## How reminders actually work
+
+This is the one place where being a web app costs you something, so it is worth
+being plain about it.
+
+**Apple gives web apps no way to raise a notification while they are closed.**
+There is no API for it — not in Safari, not in any browser on iOS. Any web app
+that seems to manage it is talking to a server that pushes the message.
+
+MySchedule handles this in three tiers instead:
+
+### Calendar — the one that always works
+
+The app turns your notes into calendar events carrying alarms and hands them to
+the iPhone's own Calendar. Those alerts are **native**: they fire on time,
+offline, whether or not MySchedule is running, forever.
+
+- Settings → **Send to Calendar**, then pick **Calendar** in the share sheet and
+  **Add All**.
+- Recurring notes go across as a *single repeating event*, so one send covers
+  every future occurrence — a weekday note is one event, not 260.
+- Each reminder you chose becomes its own alarm on the event. Choose "1 day
+  before" and "1 hour before" and you get both.
+- Only new and edited notes are offered, so you never import a duplicate.
+
+The app nudges you to do this each time you add a note. It takes two taps.
+
+### Live alerts — while the app is open
+
+Once installed to the Home Screen, MySchedule can raise real notifications on
+its own. iOS suspends its timers shortly after you leave the app, so treat this
+as covering the session you're in, not the night ahead.
+
+### Catch-up — so nothing passes silently
+
+Every time you open the app it works out which reminders came due while it was
+closed and tells you, in a banner. Belt and braces for anything the first two
+tiers missed.
 
 ---
 
 ## The idea
 
-There are exactly two ways to put something on your schedule.
+**Temporary notes** have a deadline. Type one, press return, and the app asks
+three questions: *which day*, *what time*, and *how long it should linger before
+clearing itself*. When its expiry moment passes it comes off the schedule on its
+own, and the app tells you what went.
 
-**Temporary notes** have a deadline. You type one, press return, and the app
-asks three questions: *which day*, *what time*, and *how long it should linger
-before clearing itself*. Reminders arrive ahead of the deadline, then at the
-deadline. When its expiry moment passes, the note announces itself one last
-time and comes off the schedule.
-
-**Permanent notes** are standing arrangements. You type one, press return, and
-the app asks three different questions: *which days it appears*, *what time of
-day*, and *how long it holds its place*. It then repeats forever. Nothing
-removes it but you.
+**Permanent notes** are standing arrangements. Type one, press return, and the
+app asks three different questions: *which days it appears*, *what time of day*,
+and *how long it holds its place*. It then repeats forever. Nothing removes it
+but you.
 
 **The schedule** is a view, not a store. Every day is assembled from the two
 notes sections each time you look at it, so it can never fall out of step with
@@ -29,176 +110,111 @@ what you actually wrote.
 
 ---
 
-## Building and installing it on your iPhone
-
-You need a Mac with Xcode. There is no way around this — iOS will not install
-an app that has not been signed and built on a Mac.
-
-1. Clone this repository onto the Mac.
-2. Open `MySchedule.xcodeproj`.
-3. Select the **MySchedule** target → **Signing & Capabilities**.
-   - Tick **Automatically manage signing**.
-   - Pick your Apple ID under **Team**. A free Apple ID works; add one in
-     Xcode → Settings → Accounts if you have not already.
-   - If Xcode complains the bundle identifier is taken, change
-     **Bundle Identifier** to something of your own, e.g.
-     `com.yourname.myschedule`.
-4. Plug in the iPhone, pick it from the device menu at the top of the window,
-   and press ⌘R.
-5. The first time, the phone will refuse to open the app until you trust the
-   certificate: **Settings → General → VPN & Device Management → Developer App
-   → Trust**.
-
-### About the seven-day limit
-
-An app signed with a *free* Apple ID stops launching after **7 days**. Rebuild
-it from Xcode (⌘R) to reset the clock — your notes are untouched by this, they
-live in the app's own storage. A paid Apple Developer account ($99/year) raises
-the limit to a year.
-
-### Requirements
-
-| | |
-|---|---|
-| Deployment target | iOS 17.0 |
-| Xcode | 15 or later (16+ recommended) |
-| Devices | iPhone (portrait) and iPad |
-| Frameworks | SwiftUI, UserNotifications — nothing third-party |
-
-The project file itself is in the Xcode 14 format, but the code uses iOS 17
-APIs (the two-parameter `onChange`, `.topBarTrailing` toolbar placement), so
-Xcode 15 is the real floor. Anything that can deploy to an iPhone 17 is well
-past it.
-
----
-
 ## What's in it
 
-**Welcome screen.** A nature backdrop with drifting motes and a tap-to-enter
-button, which then opens onto three doors: temporary notes, permanent notes, or
-the schedule. Can be turned off, or set to open straight to one section.
+**Welcome screen** — a nature backdrop with soft ridgelines, opening onto three
+doors: temporary notes, permanent notes, or the schedule. Can be turned off, or
+set to open straight to one section.
 
-**Schedule.** A real calendar for the configured year — 2026 by default —
-day by day, with a month grid and an agenda view. Coloured dots mark the days
-that have something on them. The browsable range widens by itself if you place
-a note outside it. Tapping anything opens the note behind it.
+**Schedule** — a real calendar for the configured year (2026 by default), month
+grid and agenda, coloured dots marking the days that have something on them. The
+range widens by itself if you place a note outside it. Tapping anything opens
+the note behind it.
 
-**Temporary notes.** Grouped into past due / today / tomorrow / this week /
-later / done. Swipe right to mark done, left to remove. Each note shows its
-countdown, its reminders, and when it will clear.
+**Temporary notes** — grouped into past due / today / tomorrow / this week /
+later / done, each showing its countdown, its reminders, and when it will clear.
 
-**Permanent notes.** Six recurrence patterns — every day, weekdays, weekends,
-chosen days, every N days, a day of the month — each with a start date, a time
-of day, and a duration. Pause one to hide it from the schedule without losing
-it.
+**Permanent notes** — six recurrence patterns (every day, weekdays, weekends,
+chosen days, every N days, a day of the month), each with a start date, a time
+of day and a duration. Pause one to hide it without losing it.
 
-**Notifications.** Per-note lead times, stackable (a day ahead *and* an hour
-ahead, say), plus an alert at the due moment and one as the note expires.
-Actions on the notification itself: *Mark done* and *Remind me in an hour*.
-Quiet hours push overnight alerts to the morning.
+**Recently cleared** — expired and removed notes land here rather than
+vanishing. Bring any of them back with one tap. Kept 30 days by default.
 
-**Recently cleared.** Expired and removed notes land here rather than
-vanishing. Swipe right to bring one back. Kept for 30 days by default.
-
-**Also:** light and dark themes, haptics, a backup file you can share to
-yourself, week-starts-on-Monday, and per-note colour tags.
+**Also** — light and dark themes that follow the phone, seven colour tags, a
+backup file you can send yourself, week-starts-on-Monday, and a plain-language
+"How it works" page inside the app.
 
 ---
 
-## Two honest limitations
+## If you ever get a Mac
 
-**iOS allows 64 pending local notifications per app.** MySchedule schedules the
-nearest ones first — always reserving room for deadlines over standing notes —
-and rebuilds the whole set every time the app opens. Daily and weekly permanent
-notes are scheduled as *repeating* triggers so they cost one slot each instead
-of one per occurrence.
-
-**An offline app cannot run while it is closed.** Notifications are handed to
-iOS in advance, so they arrive on time regardless. But the tidying up they
-announce — moving an expired note off the schedule — happens the next time you
-open the app. That is why a note sometimes clears itself the instant you
-launch, and why a banner appears saying what was cleared. The alert was already
-delivered; the housekeeping was waiting for you.
+There is also a complete **native SwiftUI version** in `MySchedule/` and
+`MySchedule.xcodeproj`. Same model, same design, and it can schedule real
+notifications by itself with no calendar detour. It needs a Mac with Xcode 15+
+to build — see the section below on the repository layout. Nothing about the web
+app depends on it; keep it or ignore it.
 
 ---
 
-## Project layout
+## Repository layout
 
 ```
-MySchedule/
-  MyScheduleApp.swift        entry point + the minimal UIApplicationDelegate
-  Models/
-    Notes.swift              TemporaryNote, PermanentNote, Recurrence, tags, leads
-    AppSettings.swift        every preference, with tolerant decoding
-    ScheduleEntry.swift      the day-resolved thing the schedule draws
-    Formatting.swift         shared date formatters
-  Store/
-    ScheduleStore.swift      the single source of truth
-    ScheduleEngine.swift     notes -> days. The heart of the app
-    Persistence.swift        one JSON file, atomic writes, lossy reads
-  Notifications/
-    NotificationPlan.swift   works out *what* to schedule — pure, no side effects
-    NotificationManager.swift hands the plan to iOS
-  Theme/
-    Theme.swift              palette, type scale, metrics, haptics, motion
-    NatureBackground.swift   ridgelines, low sun, drifting motes, the leaf
-    Components.swift         cards, chips, the flow layout, empty states
-  Views/                     one file per screen, plus the two wizards
+docs/                     the web app — this is what GitHub Pages serves
+  index.html              the shell
+  manifest.webmanifest    Home Screen install metadata
+  sw.js                   service worker: offline support
+  css/app.css             the whole theme, light and dark
+  js/
+    model.js              notes, recurrence, expiry, formatting
+    engine.js             notes -> days. The heart of the app
+    store.js              state and localStorage persistence
+    ics.js                the calendar bridge
+    notify.js             reminder timetable, live alerts, catch-up
+    ui.js                 DOM helpers, icons, sheets, the leaf mark
+    wizard.js             the two three-step flows
+    screens.js            welcome, schedule, both note lists
+    settings.js           settings, archive, calendar export
+    app.js                entry point and routing
+
+MySchedule/               the native SwiftUI version (needs a Mac)
+MySchedule.xcodeproj/
+
+test/
+  run.mjs                 45 logic tests — recurrence, expiry, sweep, ICS
+  browser.mjs             29 checks driving the real app in a real browser
+
+Tools/                    generators and checkers for the native version
 ```
 
 ### Why the engine matters
 
-`ScheduleEngine` is the only place where "what did I write down" becomes "what
-is on my schedule". Entries are derived on demand and never stored, which is
-what makes the promise in the first section true rather than aspirational: the
-schedule cannot drift from the notes because it has no state of its own.
+`engine.js` is the only place where "what did I write down" becomes "what is on
+my schedule". Entries are derived on demand and never stored, which is what
+makes the promise above true rather than aspirational: the schedule cannot drift
+from the notes because it has no state of its own.
 
 ---
 
-## Tools
-
-Helper scripts, none of them needed to build the app:
-
-| Script | What it does |
-|---|---|
-| `Tools/generate_xcodeproj.py` | Regenerates `MySchedule.xcodeproj` from whatever is in `MySchedule/`. Run it after adding or removing a source file. |
-| `Tools/check_pbxproj.py` | Validates the generated project file. |
-| `Tools/parsecheck.py` | Parses every file with the tree-sitter Swift grammar and reports real syntax errors. |
-| `Tools/callcheck.py` | A small type-checker for this project's own symbols: every `OurType(...)` call matched against its initialisers (modelling defaults, optionals, property wrappers and trailing closures), every `OurType.member` reference, and ViewBuilder's ten-child limit. |
-| `Tools/swiftcheck.py` | Balanced braces, stray tabs, unterminated strings. |
-| `Tools/symbolcheck.py` | Duplicate type names, `View` structs with a stored `body`. |
-| `Tools/make_icon.py` | Draws the app icon. Pure Python, no image libraries. |
-
-`parsecheck` and `callcheck` need a Swift grammar:
+## Working on it
 
 ```sh
-python3 -m pip install tree-sitter tree-sitter-language-pack
+npm install          # playwright, for the browser tests
+npm run serve        # http://localhost:8080
+npm test             # logic tests, then the browser suite
+npm run shots        # browser suite + screenshots of every screen
 ```
 
-Then:
+`test/run.mjs` covers the parts worth being sure about: recurrence across
+daylight-saving boundaries, the last-day-of-a-short-month fallback, expiry and
+lingering, the sweep, lossy loading of a corrupt record, and the generated
+calendar file down to its line endings and escaping.
 
-```sh
-python3 Tools/generate_xcodeproj.py
-python3 Tools/parsecheck.py MySchedule
-python3 Tools/callcheck.py MySchedule
-python3 Tools/swiftcheck.py MySchedule
-python3 Tools/symbolcheck.py MySchedule
-python3 Tools/check_pbxproj.py
-```
-
-These exist because the app was written on a machine with no Swift toolchain.
-They are not a substitute for the compiler — they know nothing about SwiftUI or
-Foundation — but they cover the place where mistakes actually accumulate, which
-is this project's own call sites. Xcode remains the final word.
+`test/browser.mjs` drives the actual app in Chromium at iPhone dimensions —
+walking both wizards end to end, checking persistence across a reload, dark
+mode, and that it still works with the network switched off. It fails on any
+console error.
 
 ---
 
-## Where your data lives
+## Where your notes live
 
-`Application Support/MySchedule/myschedule.json`, inside the app's own
-container. Writes are atomic and the previous good copy is kept alongside as
-`myschedule.backup.json`. Reads are deliberately forgiving: a note that fails
-to decode is skipped rather than taking the rest of the file with it, and a
-missing settings key falls back to its default instead of resetting everything.
+In this phone's own storage (`localStorage`), under the key
+`myschedule.state.v1`, with the previous good copy kept alongside as a backup.
+Reads are deliberately forgiving: a note that fails to parse is skipped rather
+than taking the rest of the file with it, and a missing setting falls back to
+its default instead of resetting everything.
 
-Settings → Your data → **Create a backup file** writes a shareable copy.
+Nothing is uploaded and there is no account. Use **Settings → Back up my notes**
+now and then and send the file to yourself — it is the only copy that survives
+losing the phone.

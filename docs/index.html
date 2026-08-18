@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>MySchedule</title>
+<meta name="description" content="Two kinds of note, one unified schedule.">
+
+<!-- Status bar and browser chrome follow the app's own palette. -->
+<meta name="theme-color" content="#f2f5ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b1310" media="(prefers-color-scheme: dark)">
+
+<!-- Home Screen install on iOS. -->
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" href="./icons/favicon-64.png" sizes="64x64" type="image/png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="MySchedule">
+<meta name="format-detection" content="telephone=no">
+
+<link rel="stylesheet" href="./css/app.css">
+</head>
+<body>
+<div id="app"></div>
+
+<noscript>
+  <div style="padding:32px;font-family:system-ui,sans-serif;line-height:1.5">
+    <h1 style="font-size:22px">MySchedule needs JavaScript</h1>
+    <p>The whole app runs on your phone, with no server behind it, so it cannot
+       do anything without JavaScript switched on.</p>
+  </div>
+</noscript>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

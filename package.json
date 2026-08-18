@@ -1,0 +1,17 @@
+{
+  "name": "myschedule",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MySchedule — two kinds of note, one unified schedule.",
+  "type": "module",
+  "scripts": {
+    "test": "node test/run.mjs && node test/browser.mjs",
+    "test:logic": "node test/run.mjs",
+    "test:browser": "node test/browser.mjs",
+    "shots": "node test/browser.mjs --shots ./shots",
+    "serve": "python3 -m http.server 8080 --directory docs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

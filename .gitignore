@@ -17,3 +17,8 @@ xcuserdata/
 .build/
 .swiftpm/
 Packages/
+
+# Web app tooling
+node_modules/
+shots/
+package-lock.json
