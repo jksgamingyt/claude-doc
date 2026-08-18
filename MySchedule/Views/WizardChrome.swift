@@ -186,7 +186,7 @@ struct ReminderPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            FlowLayout(spacing: 8, runSpacing: 8) {
+            ChipFlow {
                 ForEach(presets) { lead in
                     SelectChip(
                         title: lead.shortLabel,
@@ -237,7 +237,7 @@ struct ChipRow<Option: Hashable & Identifiable>: View {
     @Binding var selection: Option
 
     var body: some View {
-        FlowLayout(spacing: 8, runSpacing: 8) {
+        ChipFlow {
             ForEach(options) { option in
                 SelectChip(
                     title: label(option),

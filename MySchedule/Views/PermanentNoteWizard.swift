@@ -108,7 +108,7 @@ struct PermanentNoteWizard: View {
                 title: "Which days should it appear?",
                 caption: "This is the rhythm the note keeps. It repeats forever."
             ) {
-                FlowLayout(spacing: 8, runSpacing: 8) {
+                ChipFlow {
                     ForEach(Recurrence.Kind.allCases) { kind in
                         SelectChip(
                             title: kind.displayName,
@@ -167,7 +167,7 @@ struct PermanentNoteWizard: View {
         let symbols = store.calendar.shortWeekdaySymbols
         let order = weekdayOrder
 
-        return FlowLayout(spacing: 8, runSpacing: 8) {
+        return ChipFlow {
             ForEach(order, id: \.self) { weekday in
                 SelectChip(
                     title: symbols.indices.contains(weekday - 1) ? symbols[weekday - 1] : "\(weekday)",
@@ -193,7 +193,7 @@ struct PermanentNoteWizard: View {
     }
 
     private var dayOfMonthPicker: some View {
-        FlowLayout(spacing: 6, runSpacing: 6) {
+        ChipFlow(spacing: 6, runSpacing: 6) {
             ForEach(1...31, id: \.self) { number in
                 Button {
                     Haptics.select()
@@ -227,7 +227,7 @@ struct PermanentNoteWizard: View {
                 title: "What time of day?",
                 caption: "Where the note sits on each day it appears."
             ) {
-                FlowLayout(spacing: 8, runSpacing: 8) {
+                ChipFlow {
                     ForEach(TimeShortcut.allCases) { shortcut in
                         SelectChip(
                             title: shortcut.title,
@@ -267,7 +267,7 @@ struct PermanentNoteWizard: View {
                 title: "How long should it stay on the schedule?",
                 caption: "This is the block it occupies each time it appears — not how long the note lives. Permanent notes never expire."
             ) {
-                FlowLayout(spacing: 8, runSpacing: 8) {
+                ChipFlow {
                     ForEach(DurationOption.allCases) { option in
                         SelectChip(
                             title: option.title,

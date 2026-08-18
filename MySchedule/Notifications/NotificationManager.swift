@@ -270,9 +270,7 @@ final class NotificationManager: NSObject {
     }
 
     func setBadge(_ count: Int) {
-        if #available(iOS 16.0, *) {
-            center.setBadgeCount(max(0, count), withCompletionHandler: nil)
-        }
+        center.setBadgeCount(max(0, count), withCompletionHandler: nil)
     }
 }
 

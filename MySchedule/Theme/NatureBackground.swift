@@ -189,6 +189,9 @@ struct LeafEmblem: View {
 
     private var width: CGFloat { size * 0.72 }
 
+    /// Where each pair of side veins leaves the midrib, as a fraction of height.
+    fileprivate static let veinOffsets: [CGFloat] = [0.34, 0.52, 0.70]
+
     var body: some View {
         ZStack {
             LeafMark()
@@ -208,9 +211,7 @@ struct LeafEmblem: View {
             .stroke(Palette.canvas.opacity(0.50), lineWidth: max(1, size * 0.026))
 
             // Side veins
-            ForEach(0..<3, id: \.self) { index in
-                let t = CGFloat(0.34 + Double(index) * 0.18)
-
+            ForEach(LeafEmblem.veinOffsets, id: \.self) { t in
                 Path { path in
                     path.move(to: CGPoint(x: width * 0.5, y: size * t))
                     path.addLine(to: CGPoint(x: width * 0.20, y: size * (t + 0.12)))

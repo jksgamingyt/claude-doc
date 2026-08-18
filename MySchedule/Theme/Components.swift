@@ -263,6 +263,24 @@ struct FlowLayout: Layout {
     }
 }
 
+/// A View wrapper around `FlowLayout`.
+///
+/// A Layout *can* be written as `FlowLayout(spacing: 8) { … }`, but that leans
+/// on the compiler pairing an initialiser call with `callAsFunction` — subtle
+/// enough that it is not worth depending on at ten call sites. Invoking the
+/// layout on a value is unambiguous under any reading.
+struct ChipFlow<Content: View>: View {
+    var spacing: CGFloat = 8
+    var runSpacing: CGFloat = 8
+    var alignment: HorizontalAlignment = .leading
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        let layout = FlowLayout(spacing: spacing, runSpacing: runSpacing, alignment: alignment)
+        return layout { content() }
+    }
+}
+
 // MARK: - Buttons
 
 struct PrimaryButtonStyle: ButtonStyle {

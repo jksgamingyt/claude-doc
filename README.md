@@ -61,9 +61,14 @@ the limit to a year.
 | | |
 |---|---|
 | Deployment target | iOS 17.0 |
-| Xcode | 14 or later (16+ recommended) |
+| Xcode | 15 or later (16+ recommended) |
 | Devices | iPhone (portrait) and iPad |
 | Frameworks | SwiftUI, UserNotifications — nothing third-party |
+
+The project file itself is in the Xcode 14 format, but the code uses iOS 17
+APIs (the two-parameter `onChange`, `.topBarTrailing` toolbar placement), so
+Xcode 15 is the real floor. Anything that can deploy to an iPhone 17 is well
+past it.
 
 ---
 
@@ -158,16 +163,33 @@ Helper scripts, none of them needed to build the app:
 |---|---|
 | `Tools/generate_xcodeproj.py` | Regenerates `MySchedule.xcodeproj` from whatever is in `MySchedule/`. Run it after adding or removing a source file. |
 | `Tools/check_pbxproj.py` | Validates the generated project file. |
+| `Tools/parsecheck.py` | Parses every file with the tree-sitter Swift grammar and reports real syntax errors. |
+| `Tools/callcheck.py` | A small type-checker for this project's own symbols: every `OurType(...)` call matched against its initialisers (modelling defaults, optionals, property wrappers and trailing closures), every `OurType.member` reference, and ViewBuilder's ten-child limit. |
 | `Tools/swiftcheck.py` | Balanced braces, stray tabs, unterminated strings. |
-| `Tools/symbolcheck.py` | Duplicate type names, `View` structs with a stored `body`, references to members that were never declared. |
+| `Tools/symbolcheck.py` | Duplicate type names, `View` structs with a stored `body`. |
 | `Tools/make_icon.py` | Draws the app icon. Pure Python, no image libraries. |
+
+`parsecheck` and `callcheck` need a Swift grammar:
+
+```sh
+python3 -m pip install tree-sitter tree-sitter-language-pack
+```
+
+Then:
 
 ```sh
 python3 Tools/generate_xcodeproj.py
+python3 Tools/parsecheck.py MySchedule
+python3 Tools/callcheck.py MySchedule
 python3 Tools/swiftcheck.py MySchedule
 python3 Tools/symbolcheck.py MySchedule
 python3 Tools/check_pbxproj.py
 ```
+
+These exist because the app was written on a machine with no Swift toolchain.
+They are not a substitute for the compiler — they know nothing about SwiftUI or
+Foundation — but they cover the place where mistakes actually accumulate, which
+is this project's own call sites. Xcode remains the final word.
 
 ---
 

@@ -114,7 +114,7 @@ struct TemporaryNoteWizard: View {
                 title: "Which day is this due?",
                 caption: "Pick a shortcut or choose from the calendar."
             ) {
-                FlowLayout(spacing: 8, runSpacing: 8) {
+                ChipFlow {
                     ForEach(DayShortcut.allCases) { shortcut in
                         SelectChip(
                             title: shortcut.title,
@@ -166,7 +166,7 @@ struct TemporaryNoteWizard: View {
             }
 
             if !isAllDay {
-                FlowLayout(spacing: 8, runSpacing: 8) {
+                ChipFlow {
                     ForEach(TimeShortcut.allCases) { shortcut in
                         SelectChip(
                             title: shortcut.title,
@@ -206,7 +206,7 @@ struct TemporaryNoteWizard: View {
                 title: "When should it disappear?",
                 caption: "Once this moment passes the note leaves your schedule on its own. Nothing is lost — it moves to Recently cleared."
             ) {
-                FlowLayout(spacing: 8, runSpacing: 8) {
+                ChipFlow {
                     ForEach(LingerPreset.allCases) { preset in
                         SelectChip(
                             title: preset.shortName,
