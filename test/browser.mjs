@@ -129,6 +129,45 @@ async function typingKeepsFocus(selector) {
   }, selector);
 }
 
+/**
+ * Watch a field while something else re-renders around it.
+ *
+ * The failure mode is the element being removed from the document — even for
+ * an instant, even if the very same node is put straight back. iOS closes the
+ * keyboard on removal and does not reopen it. A MutationObserver catches that
+ * directly; checking focus afterwards (without re-clicking, which would mask
+ * it) catches the consequence.
+ */
+async function watchForDetach(selector) {
+  await page.evaluate((sel) => {
+    const target = document.querySelector(sel);
+    window.__detached = false;
+    window.__watcher = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (node === target || (node.contains && node.contains(target))) {
+            window.__detached = true;
+          }
+        }
+      }
+    });
+    window.__watcher.observe(document.body, { childList: true, subtree: true });
+  }, selector);
+}
+
+async function detachReport(selector) {
+  return page.evaluate((sel) => {
+    if (window.__watcher) window.__watcher.disconnect();
+    const target = document.querySelector(sel);
+    return {
+      detached: window.__detached === true,
+      stillFocused: document.activeElement === target,
+      active: document.activeElement ? document.activeElement.tagName : null,
+      value: target ? target.value : null,
+    };
+  }, selector);
+}
+
 async function sliderReadout(label) {
   return page.evaluate((wanted) => {
     const field = [...document.querySelectorAll('.slider-field')]
@@ -186,6 +225,9 @@ check('and the characters actually land',
 // Put it back the way it was.
 await page.locator('.sheet-body input.textinput').first().fill('Pay the rent');
 await page.waitForTimeout(150);
+// Focus it, then watch it while the step below changes.
+await page.locator('.sheet-body input.textinput').first().click();
+await watchForDetach('.sheet-body input.textinput');
 await shot('wizard-day');
 
 check('the day step is a slider, not a row of buttons',
@@ -198,6 +240,10 @@ check('the day slider reads back what it selected',
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('wizard step 2 asks for the time', await page.getByText('What time is it due?').count() > 0);
+
+const titleReport = await detachReport('.sheet-body input.textinput');
+check('the note title is never detached when the step changes',
+  titleReport.detached === false, JSON.stringify(titleReport));
 await setSlider('Time of day', 4);
 check('the time slider reads back what it selected',
   (await sliderReadout('Time of day')) === '6:00 PM',
@@ -454,6 +500,50 @@ await page.waitForTimeout(400);
 check('the reminder is listed as waiting',
   await page.getByText('Bring the charger').count() > 0);
 await shot('daily-list');
+
+// --- editing one: the reported bug. The field must survive the sheet
+// re-rendering around it, or iOS closes the keyboard.
+await page.locator('.note', { hasText: 'Bring the charger' }).first().click();
+await page.waitForTimeout(360);
+check('tapping a reminder opens it for editing',
+  (await page.locator('.sheet-head .mid strong').textContent()) === 'Edit reminder');
+
+const editField = '.sheet-body input.textinput';
+const typingInEdit = await typingKeepsFocus(editField);
+check('editing: typing keeps the keyboard up',
+  typingInEdit.focused === true && typingInEdit.attached === true,
+  JSON.stringify(typingInEdit));
+
+// The field is focused from the typing above. Now make the sheet re-render
+// around it and see whether it is taken out of the document.
+await watchForDetach(editField);
+await setSlider('Greet me', 2);
+const editReport = await detachReport(editField);
+
+check('editing: the field is never detached when the sheet re-renders',
+  editReport.detached === false, JSON.stringify(editReport));
+check('editing: and it still holds focus afterwards',
+  editReport.stillFocused === true, JSON.stringify(editReport));
+check('editing: and keeps what was typed',
+  editReport.value === 'Bring the chargerab', String(editReport.value));
+
+// Typing straight on, with no re-tap, must still land.
+await page.keyboard.type('!');
+await page.waitForTimeout(160);
+const keptTyping = await page.evaluate((sel) => document.querySelector(sel).value, editField);
+check('editing: typing continues without re-tapping the field',
+  keptTyping === 'Bring the chargerab!', keptTyping);
+
+// Put it back the way the later checks expect, and save.
+await page.locator(editField).first().fill('Bring the charger');
+await page.waitForTimeout(120);
+await setSlider('Greet me', 0);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(420);
+check('editing saves in place rather than duplicating',
+  await page.locator('.note').count() === 1, `${await page.locator('.note').count()} rows`);
+check('and the edit round-trips',
+  await page.getByText('Bring the charger').count() > 0);
 
 // It must not greet you in the same breath as writing it.
 check('writing one does not greet you immediately',

@@ -106,6 +106,17 @@ function runWizard({ title, subtitle, tone, steps, draft, onFinish, finishLabel 
       refresh();
     }
 
+    // Built once and never rebuilt. Re-mounting a container that holds a
+    // focused input detaches it from the document, which closes the keyboard
+    // on iOS; the only dependable guarantee is that this element never gets
+    // re-created. Only the step below it is re-rendered.
+    const noteCard = h('div.card.raised', { style: { marginBottom: '18px' } },
+      h('div.tiny.faint', { text: subtitle, style: { letterSpacing: '0.08em', marginBottom: '7px' } }),
+      titleInput);
+    const stepHost = h('div');
+
+    mount(sheet.body, noteCard, stepHost);
+
     function refresh() {
       mount(stepDots, ...steps.map((_, index) => h(`i${index <= step ? '.on' : ''}`,
         { class: index === step ? 'current' : '' })));
@@ -125,12 +136,7 @@ function runWizard({ title, subtitle, tone, steps, draft, onFinish, finishLabel 
         }
       };
 
-      mount(sheet.body,
-        h('div.card.raised', { style: { marginBottom: '18px' } },
-          h('div.tiny.faint', { text: subtitle, style: { letterSpacing: '0.08em', marginBottom: '7px' } }),
-          titleInput),
-        steps[step].render(draft, refresh),
-      );
+      mount(stepHost, steps[step].render(draft, refresh));
     }
 
     mount(sheet.head,

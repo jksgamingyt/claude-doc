@@ -16,7 +16,9 @@ import {
   h, mount, icon, pill, chip, emptyState, openSheet, confirmSheet, toast, leafMark,
   optionSlider, fieldBlock,
 } from './ui.js';
-import { openTemporaryWizard, openPermanentWizard } from './wizard.js';
+import {
+  openTemporaryWizard, openPermanentWizard, toDateValue, fromDateValue,
+} from './wizard.js';
 
 const AGENDA_HORIZON_DAYS = 180;
 
@@ -670,10 +672,6 @@ export function openDailySheet(app, { seed, editing }) {
       value: draft.text,
       placeholder: 'What should tomorrow-you know?',
       'aria-label': 'Reminder',
-      // Deliberately does not re-render. render() re-mounts the sheet body,
-      // which detaches this field from the document, and iOS drops the
-      // keyboard the moment the focused element leaves the DOM. Only the save
-      // button depends on this value, so nudge it directly.
       oninput: (event) => {
         draft.text = event.target.value;
         save.disabled = !draft.text.trim();
@@ -681,6 +679,20 @@ export function openDailySheet(app, { seed, editing }) {
     });
 
     const save = h('button.btn', { type: 'button' }, editing ? 'Save' : 'Leave it for the morning');
+
+    // The field lives in a card that is built once and never rebuilt. Anything
+    // that re-mounts a container holding a focused input detaches it from the
+    // document, and iOS closes the keyboard the moment that happens — so the
+    // only safe guarantee is that this element is never re-created at all.
+    const header = h('div.card.raised', { style: { marginBottom: '18px' } },
+      h('div.tiny.faint', { style: { letterSpacing: '0.08em', marginBottom: '7px' },
+        text: 'DAILY · GREETS YOU ONCE' }),
+      textInput);
+
+    // Everything that does change on re-render lives in here instead.
+    const options = h('div');
+
+    mount(sheet.body, header, options);
 
     function render() {
       mount(sheet.head,
@@ -690,12 +702,7 @@ export function openDailySheet(app, { seed, editing }) {
 
       const nearestOffset = DAILY_OFFSETS.includes(draft.offset) ? draft.offset : 1;
 
-      mount(sheet.body,
-        h('div.card.raised', { style: { marginBottom: '18px' } },
-          h('div.tiny.faint', { style: { letterSpacing: '0.08em', marginBottom: '7px' },
-            text: 'DAILY · GREETS YOU ONCE' }),
-          textInput),
-
+      mount(options,
         fieldBlock('Which morning?', 'Set it tonight and it meets you when you open the app.',
           optionSlider({
             options: DAILY_OFFSETS,
@@ -711,12 +718,12 @@ export function openDailySheet(app, { seed, editing }) {
           h('div', { style: { marginTop: '12px' } },
             h('input', {
               type: 'date',
-              value: new Date(draft.forDate).toISOString().slice(0, 10),
+              value: toDateValue(draft.forDate),
               'aria-label': 'Exact morning',
               onchange: (event) => {
-                const [y, m, d] = event.target.value.split('-').map(Number);
-                if (y && m && d) {
-                  draft.forDate = new Date(y, m - 1, d).getTime();
+                const parsed = fromDateValue(event.target.value);
+                if (parsed != null) {
+                  draft.forDate = parsed;
                   draft.offset = Math.round((draft.forDate - today) / 86400000);
                   render();
                 }
