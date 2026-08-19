@@ -2,6 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!--
+  Everything this app needs is same-origin: its own scripts, its own
+  stylesheet, its own icons. No CDN, no analytics, no third-party anything —
+  so a strict policy costs nothing and closes off classes of bug (an
+  injected script, a data leak to some other host) even if one existed.
+
+  frame-ancestors is deliberately absent: it is a response-header-only
+  directive per spec and browsers ignore it (with a console warning) when
+  set via <meta>, which GitHub Pages requires since it does not allow custom
+  response headers. Shipping a directive that silently does nothing would be
+  worse than omitting it.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self';
+  img-src 'self';
+  connect-src 'self';
+  worker-src 'self';
+  manifest-src 'self';
+  object-src 'none';
+  base-uri 'self';
+  form-action 'self';
+">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>MySchedule</title>
 <meta name="description" content="Two kinds of note, one unified schedule.">

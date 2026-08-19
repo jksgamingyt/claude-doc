@@ -531,7 +531,10 @@ ul { margin: 0; padding: 0; list-style: none; }
   background: rgba(8, 16, 12, 0.42);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
-  z-index: 50;
+  /* Above .lock-screen (100): a sheet — most notably the "Forgot PIN?"
+     confirmation — can be opened while the lock screen is still showing, and
+     it has to actually be reachable, not rendered inertly behind it. */
+  z-index: 110;
   animation: fade 0.18s ease;
 }
 
@@ -540,7 +543,7 @@ ul { margin: 0; padding: 0; list-style: none; }
   inset: max(24px, env(safe-area-inset-top)) 0 0;
   background: var(--canvas-sunken);
   border-radius: 20px 20px 0 0;
-  z-index: 51;
+  z-index: 111;
   display: flex;
   flex-direction: column;
   animation: rise 0.26s cubic-bezier(0.22, 0.9, 0.3, 1);
@@ -812,6 +815,126 @@ input.slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--sky)
 .door strong { font-size: 17px; font-weight: 700; display: block; }
 .door .count { text-align: right; flex: none; }
 .door .count b { font-size: 20px; font-weight: 700; display: block; }
+
+/* -------------------------------------------------------------------- lock */
+
+.lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--canvas);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lock-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 58% at 22% 92%, var(--wash-glow) 0%, transparent 62%),
+    linear-gradient(to bottom, var(--wash-top) 0%, var(--canvas) 55%, var(--wash-bottom) 100%);
+}
+
+.lock-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 320px;
+  padding: 24px;
+}
+
+.lock-mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--moss-soft);
+  color: var(--moss);
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+
+.lock-inner h1 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.pin-dots {
+  display: flex;
+  gap: 14px;
+  margin: 4px 0;
+}
+
+.pin-dots i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.6px solid var(--ink-3);
+  display: block;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+}
+
+.pin-dots i.filled {
+  background: var(--moss);
+  border-color: var(--moss);
+  transform: scale(1.1);
+}
+
+.pin-message {
+  font-size: 13px;
+  color: var(--ink-3);
+  min-height: 18px;
+  text-align: center;
+}
+
+.pin-message.warn { color: var(--clay); }
+
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  width: 100%;
+  max-width: 260px;
+  margin-top: 8px;
+}
+
+.pin-key {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+}
+
+.pin-key:active { background: var(--moss-soft); }
+.pin-key[disabled] { opacity: 0.45; }
+.pin-key-del { color: var(--ink-3); background: none; border-color: transparent; }
+
+.pin-forgot {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lock-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 0 6px;
+}
 
 /* ---------------------------------------------------------------- greeting */
 

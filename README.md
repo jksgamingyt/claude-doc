@@ -153,11 +153,65 @@ Tap any of them to change the morning or take it back.
 **Recently cleared** — expired and removed notes land here rather than
 vanishing. Bring any of them back with one tap. Kept 30 days by default.
 
+**App Lock** — an optional 4-digit PIN before the app opens, with a "stay
+unlocked for" setting so you are not re-prompted every time (see *Security*
+below for what this does and does not protect against).
+
 **Also** — light and dark themes that follow the phone, seven colour tags, a
 backup file you can send yourself, week-starts-on-Monday, and a plain-language
 "How it works" page inside the app.
 
 ---
+
+## Security
+
+There was a request in this project's history for a login system — email,
+password, "remember me" — so the same schedule could be reached from more than
+one device. That was deliberately not built, for a reason worth stating
+plainly: **a real login needs a server**, and a server means a database of
+everyone's notes to defend, credentials to store safely, and a service that
+has to stay up. None of that exists here on purpose. What ships instead:
+
+**No account means no account to attack.** There is no login, no server, no
+database — nothing remote that could be breached, phished, or leaked. Every
+copy of MySchedule holds only its own notes, in that browser's own storage,
+under that origin, and the browser's same-origin policy is what keeps other
+websites from reading it — not something this app adds on top.
+
+**App Lock** is what "remember me" became, mapped onto a device that has no
+concept of a login session: a 4-digit PIN gates the app itself, and a "stay
+unlocked for" setting decides how often you are asked again on that device.
+It is a **screen lock, not encryption** — the PIN is never stored (only a
+salted hash, via PBKDF2 with a strong iteration count, both computed by the
+browser's own Web Crypto, not a hand-rolled algorithm), but the notes
+underneath it are plain storage. This stops someone flicking through a phone
+they picked up; it does not stop someone with direct access to the device's
+files. Five wrong PINs trigger an escalating cool-off, but a 4-digit PIN
+still has only 10,000 possible values — say so plainly rather than oversell
+it. "Forgot PIN?" removes the lock without touching any notes, since the PIN
+never encrypted them to begin with.
+
+**Content-Security-Policy** is set in `index.html`, `script-src`/`style-src`/
+`connect-src` all pinned to `'self'`. Nothing here loads a CDN, calls a
+third-party API, or sends data anywhere — so the strict policy costs nothing
+and closes off a class of bug (an injected script, a stray call to some other
+host) even if one existed. `frame-ancestors` is deliberately omitted: it is a
+response-header-only directive and GitHub Pages does not allow custom headers,
+so setting it via `<meta>` would silently do nothing — shipping a no-op
+directive is worse than being honest about not having it.
+
+**Moving between devices stays manual, by choice**, not as a placeholder for
+something better: Settings → **Back up my notes** hands you a file through
+iOS's share sheet, where **AirDrop to your other iPhone is instant** — faster
+than any login would be, and nothing leaves Apple's own transport. **Restore
+from a backup** takes that file back in, either picked from Files or pasted
+as text, and merges rather than duplicates.
+
+A password was typed into this project's chat history while asking for a
+login. It was not stored anywhere in the app or the repository — there is no
+login, so there was nowhere for it to go — but the chat transcript itself is
+not a safe place for a real password to live. If that password is real and
+used anywhere else, change it there.
 
 ## If you ever get a Mac
 
@@ -196,7 +250,7 @@ MySchedule.xcodeproj/
 
 test/
   run.mjs                 65 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             79 checks driving the real app in a real browser
+  browser.mjs             98 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```

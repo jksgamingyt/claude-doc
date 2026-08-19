@@ -20,17 +20,17 @@ const E = await import('../docs/js/engine.js');
 const S = await import('../docs/js/store.js');
 const I = await import('../docs/js/ics.js');
 const N = await import('../docs/js/notify.js');
+const C = await import('../docs/js/crypto.js');
+const L = await import('../docs/js/lock.js');
 
 let passed = 0;
 let failed = 0;
 const failures = [];
 
-function test(name, fn) {
+async function test(name, fn) {
   try {
     const result = fn();
-    if (result && typeof result.then === 'function') {
-      throw new Error('tests must be synchronous');
-    }
+    if (result && typeof result.then === 'function') await result;
     passed += 1;
   } catch (error) {
     failed += 1;
@@ -49,7 +49,7 @@ function freshStore() {
 // Recurrence
 // ---------------------------------------------------------------------------
 
-test('daily recurrence occurs on every day at or after the start', () => {
+await test('daily recurrence occurs on every day at or after the start', () => {
   const rec = { kind: 'daily' };
   const start = at(2026, 7, 18);
   assert.equal(M.recurrenceOccurs(rec, start, start), true);
@@ -57,7 +57,7 @@ test('daily recurrence occurs on every day at or after the start', () => {
   assert.equal(M.recurrenceOccurs(rec, at(2026, 7, 17), start), false, 'before start');
 });
 
-test('weekdays recurrence skips the weekend', () => {
+await test('weekdays recurrence skips the weekend', () => {
   const rec = { kind: 'weekdays' };
   const start = at(2026, 7, 1);
   for (let day = 17; day <= 23; day += 1) {
@@ -68,7 +68,7 @@ test('weekdays recurrence skips the weekend', () => {
   }
 });
 
-test('weekends recurrence is exactly the complement of weekdays', () => {
+await test('weekends recurrence is exactly the complement of weekdays', () => {
   const start = at(2026, 7, 1);
   for (let day = 1; day <= 28; day += 1) {
     const ms = at(2026, 7, day);
@@ -78,7 +78,7 @@ test('weekends recurrence is exactly the complement of weekdays', () => {
   }
 });
 
-test('everyNDays counts from the start date', () => {
+await test('everyNDays counts from the start date', () => {
   const rec = { kind: 'everyNDays', interval: 3 };
   const start = at(2026, 7, 18);
   assert.equal(M.recurrenceOccurs(rec, at(2026, 7, 18), start), true);
@@ -87,7 +87,7 @@ test('everyNDays counts from the start date', () => {
   assert.equal(M.recurrenceOccurs(rec, at(2026, 7, 24), start), true);
 });
 
-test('everyNDays survives a daylight-saving boundary', () => {
+await test('everyNDays survives a daylight-saving boundary', () => {
   // US DST ends 1 Nov 2026; a naive ms/86400000 would drift here.
   const rec = { kind: 'everyNDays', interval: 2 };
   const start = at(2026, 9, 30);
@@ -96,7 +96,7 @@ test('everyNDays survives a daylight-saving boundary', () => {
   assert.equal(M.recurrenceOccurs(rec, at(2026, 10, 3), start), true);
 });
 
-test('dayOfMonth falls back to the last day of a short month', () => {
+await test('dayOfMonth falls back to the last day of a short month', () => {
   const rec = { kind: 'dayOfMonth', dayOfMonth: 31 };
   const start = at(2026, 0, 1);
   assert.equal(M.recurrenceOccurs(rec, at(2026, 0, 31), start), true, 'Jan 31');
@@ -105,7 +105,7 @@ test('dayOfMonth falls back to the last day of a short month', () => {
   assert.equal(M.recurrenceOccurs(rec, at(2026, 3, 30), start), true, 'Apr 30 fallback');
 });
 
-test('dayOfMonth does not double-fire in a long month', () => {
+await test('dayOfMonth does not double-fire in a long month', () => {
   const rec = { kind: 'dayOfMonth', dayOfMonth: 31 };
   const start = at(2026, 0, 1);
   let hits = 0;
@@ -115,7 +115,7 @@ test('dayOfMonth does not double-fire in a long month', () => {
   assert.equal(hits, 1);
 });
 
-test('selectedDays with no days chosen never occurs', () => {
+await test('selectedDays with no days chosen never occurs', () => {
   const rec = { kind: 'selectedDays', weekdays: [] };
   assert.equal(M.recurrenceOccurs(rec, at(2026, 7, 18), at(2026, 7, 1)), false);
 });
@@ -124,17 +124,17 @@ test('selectedDays with no days chosen never occurs', () => {
 // Expiry
 // ---------------------------------------------------------------------------
 
-test('atDue expiry equals the deadline', () => {
+await test('atDue expiry equals the deadline', () => {
   const due = at(2026, 7, 20, 18, 0);
   assert.equal(M.expiryFor(due, 'atDue'), due);
 });
 
-test('endOfDay expiry is the following midnight', () => {
+await test('endOfDay expiry is the following midnight', () => {
   const due = at(2026, 7, 20, 18, 0);
   assert.equal(M.expiryFor(due, 'endOfDay'), at(2026, 7, 21));
 });
 
-test('endOfDay on a late-evening deadline still lands the same night', () => {
+await test('endOfDay on a late-evening deadline still lands the same night', () => {
   const due = at(2026, 7, 20, 23, 30);
   assert.equal(M.expiryFor(due, 'endOfDay'), at(2026, 7, 21));
 });
@@ -152,7 +152,7 @@ function stateWith(temporary = [], permanent = [], now = at(2026, 7, 18, 9, 0)) 
   };
 }
 
-test('a temporary note appears on its due day', () => {
+await test('a temporary note appears on its due day', () => {
   const note = M.makeTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0) });
   const state = stateWith([note]);
   assert.equal(E.entriesOn(state, at(2026, 7, 20)).length, 1);
@@ -160,7 +160,7 @@ test('a temporary note appears on its due day', () => {
   assert.equal(E.entriesOn(state, at(2026, 7, 21)).length, 0);
 });
 
-test('a note expiring at midnight does not bleed into the next day', () => {
+await test('a note expiring at midnight does not bleed into the next day', () => {
   const note = M.makeTemporary({
     title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'endOfDay',
   });
@@ -169,7 +169,7 @@ test('a note expiring at midnight does not bleed into the next day', () => {
   assert.equal(E.entriesOn(state, at(2026, 7, 21)).length, 0, 'not the day after');
 });
 
-test('a lingering note carries into the following day', () => {
+await test('a lingering note carries into the following day', () => {
   const note = M.makeTemporary({
     title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'oneDay',
   });
@@ -179,7 +179,7 @@ test('a lingering note carries into the following day', () => {
   assert.equal(E.entriesOn(state, at(2026, 7, 22)).length, 0);
 });
 
-test('all-day entries sort above timed ones', () => {
+await test('all-day entries sort above timed ones', () => {
   const timed = M.makeTemporary({ title: 'Timed', due: at(2026, 7, 20, 9, 0) });
   const allDay = M.makeTemporary({ title: 'All day', due: at(2026, 7, 20, 12, 0), isAllDay: true });
   const state = stateWith([timed, allDay]);
@@ -188,7 +188,7 @@ test('all-day entries sort above timed ones', () => {
   assert.equal(entries[0].title, 'All day');
 });
 
-test('a permanent note appears on every matching day, forever', () => {
+await test('a permanent note appears on every matching day, forever', () => {
   const note = M.makePermanent({
     title: 'Walk',
     recurrence: { kind: 'weekdays' },
@@ -201,14 +201,14 @@ test('a permanent note appears on every matching day, forever', () => {
   assert.equal(E.entriesOn(state, at(2027, 7, 17)).length, 1, 'a year later');
 });
 
-test('a muted permanent note leaves the schedule but is not deleted', () => {
+await test('a muted permanent note leaves the schedule but is not deleted', () => {
   const note = M.makePermanent({ title: 'Walk', recurrence: { kind: 'daily' }, startDate: at(2026, 7, 1) });
   note.isMuted = true;
   const state = stateWith([], [note]);
   assert.equal(E.entriesOn(state, at(2026, 7, 20)).length, 0);
 });
 
-test('a permanent note never appears before its start date', () => {
+await test('a permanent note never appears before its start date', () => {
   const note = M.makePermanent({
     title: 'Walk', recurrence: { kind: 'daily' }, startDate: at(2026, 8, 1),
   });
@@ -217,7 +217,7 @@ test('a permanent note never appears before its start date', () => {
   assert.equal(E.entriesOn(state, at(2026, 8, 1)).length, 1);
 });
 
-test('the month grid is always 42 days and starts on the right weekday', () => {
+await test('the month grid is always 42 days and starts on the right weekday', () => {
   const days = E.gridDays(at(2026, 7, 1), false);
   assert.equal(days.length, 42);
   assert.equal(new Date(days[0]).getDay(), 0, 'Sunday start');
@@ -225,7 +225,7 @@ test('the month grid is always 42 days and starts on the right weekday', () => {
   assert.equal(new Date(monday[0]).getDay(), 1, 'Monday start');
 });
 
-test('the month grid contains every day of the month', () => {
+await test('the month grid contains every day of the month', () => {
   for (let month = 0; month < 12; month += 1) {
     const days = E.gridDays(at(2026, month, 1), false);
     const inMonth = days.filter((d) => new Date(d).getMonth() === month);
@@ -234,7 +234,7 @@ test('the month grid contains every day of the month', () => {
   }
 });
 
-test('agenda only returns days that have something on them', () => {
+await test('agenda only returns days that have something on them', () => {
   const note = M.makeTemporary({ title: 'One', due: at(2026, 7, 25, 12, 0) });
   const state = stateWith([note]);
   const days = E.agenda(state, at(2026, 7, 18), at(2026, 7, 31));
@@ -242,7 +242,7 @@ test('agenda only returns days that have something on them', () => {
   assert.equal(days[0].day, at(2026, 7, 25));
 });
 
-test('calendar bounds cover the configured year and stretch to fit outliers', () => {
+await test('calendar bounds cover the configured year and stretch to fit outliers', () => {
   const far = M.makeTemporary({ title: 'Far', due: at(2028, 5, 1, 9, 0) });
   const state = stateWith([far]);
   const bounds = E.calendarBounds(state);
@@ -254,7 +254,7 @@ test('calendar bounds cover the configured year and stretch to fit outliers', ()
 // Store and sweep
 // ---------------------------------------------------------------------------
 
-test('a note survives a save and reload', () => {
+await test('a note survives a save and reload', () => {
   const store = freshStore();
   store.addTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0), reminders: [60] });
   store.saveNow();
@@ -264,7 +264,7 @@ test('a note survives a save and reload', () => {
   assert.deepEqual(reloaded.state.temporary[0].reminders, [60]);
 });
 
-test('a corrupt record is skipped, not fatal', () => {
+await test('a corrupt record is skipped, not fatal', () => {
   memory.clear();
   localStorage.setItem('myschedule.state.v1', JSON.stringify({
     version: 1,
@@ -280,7 +280,7 @@ test('a corrupt record is skipped, not fatal', () => {
   assert.equal(store.state.temporary[0].title, 'Good');
 });
 
-test('unknown settings keys do not reset the known ones', () => {
+await test('unknown settings keys do not reset the known ones', () => {
   memory.clear();
   localStorage.setItem('myschedule.state.v1', JSON.stringify({
     settings: { calendarYear: 2030 },
@@ -290,7 +290,7 @@ test('unknown settings keys do not reset the known ones', () => {
   assert.equal(store.state.settings.defaultLinger, 'atDue', 'filled in the missing one');
 });
 
-test('sweep retires an expired note into the archive', () => {
+await test('sweep retires an expired note into the archive', () => {
   const store = freshStore();
   store.addTemporary({ title: 'Gone', due: at(2026, 7, 10, 9, 0) });
   const report = store.sweep(at(2026, 7, 18, 9, 0));
@@ -300,14 +300,14 @@ test('sweep retires an expired note into the archive', () => {
   assert.deepEqual(report.expired, ['Gone']);
 });
 
-test('sweep leaves a note that has not expired yet', () => {
+await test('sweep leaves a note that has not expired yet', () => {
   const store = freshStore();
   store.addTemporary({ title: 'Soon', due: at(2026, 7, 20, 9, 0) });
   store.sweep(at(2026, 7, 18, 9, 0));
   assert.equal(store.state.temporary.length, 1);
 });
 
-test('a completed note is archived as done, and not announced', () => {
+await test('a completed note is archived as done, and not announced', () => {
   const store = freshStore();
   const note = store.addTemporary({ title: 'Done thing', due: at(2026, 7, 10, 9, 0) });
   store.setDone(note.id, true);
@@ -316,7 +316,7 @@ test('a completed note is archived as done, and not announced', () => {
   assert.deepEqual(report.expired, [], 'nothing to announce');
 });
 
-test('a note expiring today is not trimmed away in the same sweep', () => {
+await test('a note expiring today is not trimmed away in the same sweep', () => {
   // The bug this guards: trimming after filing would archive a long-overdue
   // note and immediately delete it, while still naming it in the banner.
   const store = freshStore();
@@ -328,14 +328,14 @@ test('a note expiring today is not trimmed away in the same sweep', () => {
   assert.equal(store.state.archive.length, 1, 'still in the archive it was announced for');
 });
 
-test('permanent notes are never swept', () => {
+await test('permanent notes are never swept', () => {
   const store = freshStore();
   store.addPermanent({ title: 'Forever', recurrence: { kind: 'daily' }, startDate: at(2020, 0, 1) });
   store.sweep(at(2030, 0, 1));
   assert.equal(store.state.permanent.length, 1);
 });
 
-test('grouping puts an overdue note in past due and a future one in later', () => {
+await test('grouping puts an overdue note in past due and a future one in later', () => {
   const store = freshStore();
   store.state.now = at(2026, 7, 18, 12, 0);
   store.addTemporary({ title: 'Late', due: at(2026, 7, 17, 9, 0), linger: 'oneWeek' });
@@ -347,7 +347,7 @@ test('grouping puts an overdue note in past due and a future one in later', () =
   assert.deepEqual(groups.later, ['Far']);
 });
 
-test('attention count is overdue plus today, ignoring done', () => {
+await test('attention count is overdue plus today, ignoring done', () => {
   const store = freshStore();
   store.state.now = at(2026, 7, 18, 12, 0);
   store.addTemporary({ title: 'Late', due: at(2026, 7, 17, 9, 0), linger: 'oneWeek' });
@@ -358,7 +358,7 @@ test('attention count is overdue plus today, ignoring done', () => {
   assert.equal(store.attentionCount, 2);
 });
 
-test('deleting a note archives it, and restoring brings it back', () => {
+await test('deleting a note archives it, and restoring brings it back', () => {
   const store = freshStore();
   const note = store.addTemporary({ title: 'Oops', due: at(2026, 8, 20, 9, 0) });
   store.deleteTemporary(note.id);
@@ -369,7 +369,7 @@ test('deleting a note archives it, and restoring brings it back', () => {
   assert.equal(store.state.archive.length, 0);
 });
 
-test('a restored note gets a deadline in the future', () => {
+await test('a restored note gets a deadline in the future', () => {
   const store = freshStore();
   const note = store.addTemporary({ title: 'Old', due: at(2020, 0, 1, 9, 0) });
   store.deleteTemporary(note.id);
@@ -377,7 +377,7 @@ test('a restored note gets a deadline in the future', () => {
   assert.ok(store.state.temporary[0].due > Date.now(), 'would otherwise expire instantly');
 });
 
-test('export round-trips through JSON', () => {
+await test('export round-trips through JSON', () => {
   const store = freshStore();
   store.addTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0) });
   store.addPermanent({ title: 'Walk', recurrence: { kind: 'daily' }, startDate: at(2026, 7, 1) });
@@ -388,7 +388,7 @@ test('export round-trips through JSON', () => {
   assert.equal(fresh.state.permanent.length, 1);
 });
 
-test('importing junk is refused rather than clearing anything', () => {
+await test('importing junk is refused rather than clearing anything', () => {
   const store = freshStore();
   store.addTemporary({ title: 'Keep me', due: at(2026, 7, 20, 18, 0) });
   assert.equal(store.importJSON('not json at all', true), false);
@@ -399,7 +399,7 @@ test('importing junk is refused rather than clearing anything', () => {
 // Calendar export
 // ---------------------------------------------------------------------------
 
-test('ICS text uses CRLF and folds long lines', () => {
+await test('ICS text uses CRLF and folds long lines', () => {
   const note = M.makeTemporary({ title: 'x'.repeat(300), due: at(2026, 7, 20, 18, 0) });
   const { text } = I.buildICS({ temporary: [note], permanent: [] });
   assert.ok(!/[^\r]\n/.test(text), 'every LF is preceded by CR');
@@ -408,7 +408,7 @@ test('ICS text uses CRLF and folds long lines', () => {
   }
 });
 
-test('ICS escapes the characters RFC 5545 reserves', () => {
+await test('ICS escapes the characters RFC 5545 reserves', () => {
   // String.raw throughout: a plain literal silently drops the backslash in
   // '\;', which is the exact trap that produced a malformed file first time.
   const note = M.makeTemporary({ title: String.raw`a;b,c\d`, due: at(2026, 7, 20, 18, 0) });
@@ -417,7 +417,7 @@ test('ICS escapes the characters RFC 5545 reserves', () => {
   assert.equal(summary, String.raw`SUMMARY:a\;b\,c\\d`);
 });
 
-test('each reminder becomes its own VALARM with the right trigger', () => {
+await test('each reminder becomes its own VALARM with the right trigger', () => {
   const note = M.makeTemporary({
     title: 'Rent', due: at(2026, 7, 20, 18, 0), reminders: [1440, 60, 0],
   });
@@ -426,7 +426,7 @@ test('each reminder becomes its own VALARM with the right trigger', () => {
   assert.deepEqual(triggers, ['TRIGGER:-P1D', 'TRIGGER:-PT1H', 'TRIGGER:-PT0S']);
 });
 
-test('a recurring note becomes one event with an RRULE', () => {
+await test('a recurring note becomes one event with an RRULE', () => {
   const note = M.makePermanent({
     title: 'Walk',
     recurrence: { kind: 'selectedDays', weekdays: [1, 3, 5] },
@@ -438,7 +438,7 @@ test('a recurring note becomes one event with an RRULE', () => {
   assert.ok(text.includes('RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR'));
 });
 
-test('a recurring event anchors on a day the pattern actually lands on', () => {
+await test('a recurring event anchors on a day the pattern actually lands on', () => {
   // Start date is a Tuesday but the pattern is Mon/Wed/Fri; anchoring on the
   // start date would shift every occurrence by a day.
   const start = at(2026, 7, 18);
@@ -454,14 +454,14 @@ test('a recurring event anchors on a day the pattern actually lands on', () => {
   assert.equal(dtstart, 'DTSTART:20260819T070000', 'moved to the Wednesday');
 });
 
-test('an all-day note uses DATE values, not times', () => {
+await test('an all-day note uses DATE values, not times', () => {
   const note = M.makeTemporary({ title: 'Birthday', due: at(2026, 7, 20, 9, 0), isAllDay: true });
   const { text } = I.buildICS({ temporary: [note], permanent: [] });
   assert.ok(text.includes('DTSTART;VALUE=DATE:20260820'));
   assert.ok(text.includes('DTEND;VALUE=DATE:20260821'));
 });
 
-test('every RRULE kind produces a rule', () => {
+await test('every RRULE kind produces a rule', () => {
   const kinds = ['daily', 'weekdays', 'weekends', 'everyNDays', 'dayOfMonth'];
   for (const kind of kinds) {
     const rule = I.rruleFor({ kind, weekdays: [1], interval: 3, dayOfMonth: 15 });
@@ -470,7 +470,7 @@ test('every RRULE kind produces a rule', () => {
   assert.equal(I.rruleFor({ kind: 'selectedDays', weekdays: [] }), null, 'no days, no rule');
 });
 
-test('export offers a note once, then not again until it changes', () => {
+await test('export offers a note once, then not again until it changes', () => {
   const store = freshStore();
   const note = store.addTemporary({ title: 'Rent', due: Date.now() + 5 * M.DAY, reminders: [60] });
   let batch = I.exportable(store.state, true);
@@ -485,7 +485,7 @@ test('export offers a note once, then not again until it changes', () => {
   assert.equal(batch.temporary.length, 1, 'offered again after an edit');
 });
 
-test('export skips notes that are done or already past', () => {
+await test('export skips notes that are done or already past', () => {
   const store = freshStore();
   const past = store.addTemporary({ title: 'Past', due: Date.now() - M.DAY, linger: 'oneWeek' });
   const done = store.addTemporary({ title: 'Done', due: Date.now() + M.DAY });
@@ -499,25 +499,25 @@ test('export skips notes that are done or already past', () => {
 // Daily reminders
 // ---------------------------------------------------------------------------
 
-test('a daily reminder defaults to tomorrow morning', () => {
+await test('a daily reminder defaults to tomorrow morning', () => {
   const reminder = M.makeDaily({ text: 'Bring the charger' });
   assert.equal(reminder.forDate, M.startOfDay(Date.now() + M.DAY));
   assert.equal(reminder.seenAt, null);
 });
 
-test('a reminder for tomorrow is not pending today', () => {
+await test('a reminder for tomorrow is not pending today', () => {
   const store = freshStore();
   store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19) });
   assert.equal(store.pendingDaily(at(2026, 7, 18, 8, 0)).length, 0);
 });
 
-test('a reminder for today is pending', () => {
+await test('a reminder for today is pending', () => {
   const store = freshStore();
   store.addDaily({ text: 'Charger', forDate: at(2026, 7, 18) });
   assert.equal(store.pendingDaily(at(2026, 7, 18, 8, 0)).length, 1);
 });
 
-test('a reminder left at 11:59pm is pending the next morning', () => {
+await test('a reminder left at 11:59pm is pending the next morning', () => {
   const store = freshStore();
   // Written just before midnight, aimed at the morning after.
   store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19), createdAt: at(2026, 7, 18, 23, 59) });
@@ -525,7 +525,7 @@ test('a reminder left at 11:59pm is pending the next morning', () => {
   assert.equal(store.pendingDaily(at(2026, 7, 19, 7, 0)).length, 1, 'waiting in the morning');
 });
 
-test('a reminder slept through still waits, rather than vanishing', () => {
+await test('a reminder slept through still waits, rather than vanishing', () => {
   const store = freshStore();
   store.addDaily({ text: 'Charger', forDate: at(2026, 7, 15) });
   const pending = store.pendingDaily(at(2026, 7, 18, 9, 0));
@@ -533,7 +533,7 @@ test('a reminder slept through still waits, rather than vanishing', () => {
   assert.equal(pending[0].text, 'Charger');
 });
 
-test('being seen stands a reminder down for good', () => {
+await test('being seen stands a reminder down for good', () => {
   const store = freshStore();
   const reminder = store.addDaily({ text: 'Charger', forDate: at(2026, 7, 18) });
   store.markDailySeen([reminder.id], at(2026, 7, 18, 8, 0));
@@ -541,7 +541,7 @@ test('being seen stands a reminder down for good', () => {
   assert.equal(store.pendingDaily(at(2026, 7, 19, 9, 0)).length, 0, 'nor the next day');
 });
 
-test('several reminders for one morning all come through, oldest first', () => {
+await test('several reminders for one morning all come through, oldest first', () => {
   const store = freshStore();
   store.addDaily({ text: 'Second', forDate: at(2026, 7, 18) });
   store.addDaily({ text: 'First', forDate: at(2026, 7, 16) });
@@ -549,7 +549,7 @@ test('several reminders for one morning all come through, oldest first', () => {
   assert.deepEqual(pending.map((r) => r.text), ['First', 'Second']);
 });
 
-test('delivered reminders are cleared out on sweep, unseen ones are not', () => {
+await test('delivered reminders are cleared out on sweep, unseen ones are not', () => {
   const store = freshStore();
   const now = at(2026, 7, 18, 9, 0);
   store.state.settings.archiveRetentionDays = 30;
@@ -561,7 +561,7 @@ test('delivered reminders are cleared out on sweep, unseen ones are not', () => 
   assert.deepEqual(store.state.daily.map((r) => r.text), ['Still waiting']);
 });
 
-test('daily reminders survive a save and reload', () => {
+await test('daily reminders survive a save and reload', () => {
   const store = freshStore();
   store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19) });
   store.saveNow();
@@ -570,7 +570,7 @@ test('daily reminders survive a save and reload', () => {
   assert.equal(reloaded.state.daily[0].text, 'Charger');
 });
 
-test('a malformed daily reminder is skipped, not fatal', () => {
+await test('a malformed daily reminder is skipped, not fatal', () => {
   memory.clear();
   localStorage.setItem('myschedule.state.v1', JSON.stringify({
     daily: [{ text: 'Good', forDate: at(2026, 7, 19) }, { text: 'no date' }, null],
@@ -579,7 +579,7 @@ test('a malformed daily reminder is skipped, not fatal', () => {
   assert.equal(store.state.daily.length, 1);
 });
 
-test('daily reminders do not appear on the calendar', () => {
+await test('daily reminders do not appear on the calendar', () => {
   // They greet you; they are not schedule entries. Guards against them
   // quietly leaking into the day grid.
   const store = freshStore();
@@ -589,16 +589,93 @@ test('daily reminders do not appear on the calendar', () => {
 });
 
 // ---------------------------------------------------------------------------
+// PIN hashing (crypto.js)
+// ---------------------------------------------------------------------------
+
+await test('a correct PIN verifies, a wrong one does not', async () => {
+  const { salt, hash } = await C.hashPin('4821');
+  assert.equal(await C.verifyPin('4821', salt, hash), true);
+  assert.equal(await C.verifyPin('4820', salt, hash), false);
+});
+
+await test('hashing the same PIN twice never produces the same salt or hash', async () => {
+  const a = await C.hashPin('1234');
+  const b = await C.hashPin('1234');
+  assert.notEqual(a.salt, b.salt);
+  assert.notEqual(a.hash, b.hash);
+  assert.equal(await C.verifyPin('1234', a.salt, a.hash), true);
+  assert.equal(await C.verifyPin('1234', b.salt, b.hash), true);
+});
+
+await test('a one-digit-off PIN is rejected, not just a wildly different one', async () => {
+  const { salt, hash } = await C.hashPin('5555');
+  assert.equal(await C.verifyPin('5556', salt, hash), false);
+});
+
+await test('the stored hash never contains the PIN as plain text', async () => {
+  const { salt, hash } = await C.hashPin('1379');
+  assert.ok(!hash.includes('1379'));
+  assert.ok(!salt.includes('1379'));
+});
+
+// ---------------------------------------------------------------------------
+// Lock state (lock.js)
+// ---------------------------------------------------------------------------
+
+await test('App Lock off means never locked, regardless of session state', () => {
+  const settings = { ...S.DEFAULT_SETTINGS, pinEnabled: false };
+  assert.equal(L.isLocked(settings, { unlockedUntil: 0 }, at(2026, 7, 18)), false);
+});
+
+await test('App Lock on with no session is locked', () => {
+  const settings = { ...S.DEFAULT_SETTINGS, pinEnabled: true, pinHash: 'x', pinSalt: 'y' };
+  assert.equal(L.isLocked(settings, { unlockedUntil: 0 }, at(2026, 7, 18)), true);
+});
+
+await test('unlocking within the remembered window skips the lock screen', () => {
+  const settings = { ...S.DEFAULT_SETTINGS, pinEnabled: true, pinHash: 'x', pinSalt: 'y', pinRememberMinutes: 60 };
+  const now = at(2026, 7, 18, 9, 0);
+  const until = L.rememberUntil(now, 60);
+  assert.equal(L.isLocked(settings, { unlockedUntil: until }, now + 30 * 60000), false, 'still inside the hour');
+  assert.equal(L.isLocked(settings, { unlockedUntil: until }, now + 90 * 60000), true, 'past the hour');
+});
+
+await test('"Every time" (0 minutes) never remembers, even a moment later', () => {
+  const settings = { ...S.DEFAULT_SETTINGS, pinEnabled: true, pinHash: 'x', pinSalt: 'y' };
+  const now = at(2026, 7, 18, 9, 0);
+  const until = L.rememberUntil(now, 0);
+  assert.equal(L.isLocked(settings, { unlockedUntil: until }, now + 1), true);
+});
+
+await test('a PIN missing its hash or salt does not lock the app out', () => {
+  // Guards against a corrupt or partially-imported settings blob leaving
+  // someone unable to reach their own notes with no PIN to enter.
+  const settings = { ...S.DEFAULT_SETTINGS, pinEnabled: true, pinHash: null, pinSalt: null };
+  assert.equal(L.isLocked(settings, { unlockedUntil: 0 }, Date.now()), false);
+});
+
+await test('the lockout schedule only escalates, never eases mid-streak', () => {
+  const seen = [];
+  for (let n = 0; n <= 20; n += 1) seen.push(L.lockoutSeconds(n));
+  for (let i = 1; i < seen.length; i += 1) {
+    assert.ok(seen[i] >= seen[i - 1], `attempt ${i}: ${seen[i]} should be >= ${seen[i - 1]}`);
+  }
+  assert.equal(L.lockoutSeconds(0), 0, 'no throttle on the first few tries');
+  assert.equal(L.lockoutSeconds(4), 0);
+  assert.ok(L.lockoutSeconds(5) > 0, 'throttle kicks in by the 5th');
+});
+
+// ---------------------------------------------------------------------------
 // Reminder slots (the two nudge sliders)
 // ---------------------------------------------------------------------------
 
-test('reminders split into two slots, furthest ahead first', () => {
+await test('reminders split into two slots, furthest ahead first', () => {
   assert.deepEqual(M.splitReminders([60, 1440]), { nudgeA: 1440, nudgeB: 60 });
   assert.deepEqual(M.splitReminders([30]), { nudgeA: 30, nudgeB: null });
   assert.deepEqual(M.splitReminders([]), { nudgeA: null, nudgeB: null });
 });
 
-test('slots rejoin without Offs or duplicates, furthest ahead first', () => {
+await test('slots rejoin without Offs or duplicates, furthest ahead first', () => {
   assert.deepEqual(M.joinNudges(1440, 60), [1440, 60]);
   assert.deepEqual(M.joinNudges(null, 60), [60]);
   assert.deepEqual(M.joinNudges(null, null), []);
@@ -606,13 +683,13 @@ test('slots rejoin without Offs or duplicates, furthest ahead first', () => {
   assert.deepEqual(M.joinNudges(60, 1440), [1440, 60], 'order of the slots does not matter');
 });
 
-test('splitting then rejoining is lossless for two reminders', () => {
+await test('splitting then rejoining is lossless for two reminders', () => {
   const original = [10080, 15];
   const { nudgeA, nudgeB } = M.splitReminders(original);
   assert.deepEqual(M.joinNudges(nudgeA, nudgeB), original);
 });
 
-test('Off is the first stop on the nudge track', () => {
+await test('Off is the first stop on the nudge track', () => {
   assert.equal(M.NUDGE_OPTIONS[0], null);
   assert.equal(M.nudgeLabel(M.NUDGE_OPTIONS[0]), 'Off');
   assert.equal(M.nudgeLabel(1440), '1 day before');
@@ -623,7 +700,7 @@ test('Off is the first stop on the nudge track', () => {
 // Silent notes
 // ---------------------------------------------------------------------------
 
-test('a note with no reminders produces no reminder timetable entries', () => {
+await test('a note with no reminders produces no reminder timetable entries', () => {
   const store = freshStore();
   store.addTemporary({
     title: 'Silent', due: at(2026, 7, 20, 18, 0), reminders: [], notifyOnExpiry: false,
@@ -632,7 +709,7 @@ test('a note with no reminders produces no reminder timetable entries', () => {
   assert.equal(timetable.length, 0);
 });
 
-test('turning the expiry alert off removes the only entry a reminderless note had', () => {
+await test('turning the expiry alert off removes the only entry a reminderless note had', () => {
   const store = freshStore();
   store.addTemporary({
     title: 'Expiring', due: at(2026, 7, 20, 18, 0), linger: 'oneDay',
@@ -644,7 +721,7 @@ test('turning the expiry alert off removes the only entry a reminderless note ha
   assert.equal(N.reminderTimetable(store.state, at(2026, 7, 18), 10).length, 0);
 });
 
-test('a silent permanent note never enters the timetable', () => {
+await test('a silent permanent note never enters the timetable', () => {
   const store = freshStore();
   store.addPermanent({
     title: 'Quiet walk', recurrence: { kind: 'daily' },
@@ -653,7 +730,7 @@ test('a silent permanent note never enters the timetable', () => {
   assert.equal(N.reminderTimetable(store.state, at(2026, 7, 18), 10).length, 0);
 });
 
-test('a silent note still exports to the calendar, just without an alarm', () => {
+await test('a silent note still exports to the calendar, just without an alarm', () => {
   const note = M.makeTemporary({ title: 'Silent', due: at(2026, 7, 20, 18, 0), reminders: [] });
   const { text, count } = I.buildICS({ temporary: [note], permanent: [] });
   assert.equal(count, 1, 'still an event');
@@ -661,7 +738,7 @@ test('a silent note still exports to the calendar, just without an alarm', () =>
   assert.ok(!text.includes('BEGIN:VALARM'), 'but no alarm');
 });
 
-test('a silent note still appears on the schedule', () => {
+await test('a silent note still appears on the schedule', () => {
   const note = M.makeTemporary({ title: 'Silent', due: at(2026, 7, 20, 18, 0), reminders: [] });
   const state = stateWith([note]);
   assert.equal(E.entriesOn(state, at(2026, 7, 20)).length, 1);

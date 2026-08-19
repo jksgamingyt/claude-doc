@@ -67,6 +67,12 @@ page.on('console', (message) => {
   }
 });
 page.on('pageerror', (error) => problems.push(`page error: ${error.message}`));
+page.on('console', (message) => {
+  const text = message.text();
+  if (/content security policy|refused to/i.test(text)) {
+    problems.push(`CSP violation: ${text}`);
+  }
+});
 page.on('requestfailed', (request) => {
   problems.push(`request failed: ${request.url()} (${request.failure()?.errorText})`);
 });
@@ -587,6 +593,143 @@ await page.waitForTimeout(400);
 check('it does not greet you twice', await page.locator('.greeting').count() === 0);
 check('the daily door lands on the daily section',
   await page.getByText('Left for the morning').count() > 0);
+
+// --- App Lock: end to end, including the wrong-PIN and lockout paths
+await page.getByRole('tab', { name: /Settings/ }).click();
+await page.waitForTimeout(300);
+check('App Lock starts off', await page.getByText('App Lock is off').count() > 0);
+
+await page.getByText('Turn on App Lock').click();
+await page.waitForTimeout(300);
+check('setting a PIN opens a 4-dot pad', await page.locator('.pin-dots i').count() === 4);
+
+async function enterPin(digits) {
+  for (const digit of String(digits)) {
+    await page.locator('.pin-key', { hasText: digit }).first().click();
+    await page.waitForTimeout(90);
+  }
+}
+
+await enterPin('1234');
+await page.waitForTimeout(200);
+check('after the first entry it asks to confirm',
+  await page.getByText('Enter it again to confirm').count() > 0);
+
+// A mismatch must not silently accept a different PIN. The app starts the
+// whole set-PIN flow over on a mismatch (matching how iOS's own passcode
+// setup behaves) rather than only retrying the confirm step, so the test
+// has to redo both entries too, not just the second one.
+await enterPin('9999');
+await page.waitForTimeout(250);
+check('a mismatched confirmation is rejected, not silently accepted',
+  await page.getByText("match").count() > 0);
+check('a mismatch restarts from the first entry, rather than retrying confirm',
+  await page.getByText('Choose a 4-digit PIN').count() > 0);
+
+await enterPin('1234');
+await page.waitForTimeout(200);
+await enterPin('1234');
+await page.waitForTimeout(350);
+check('a matching confirmation sets the PIN and closes the sheet',
+  await page.locator('.sheet').count() === 0 && await page.getByText('App Lock is on').count() > 0);
+
+// Reloading is the real test: the app must not boot past the lock screen.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+check('a reload with App Lock on shows the lock screen, not the welcome screen',
+  await page.locator('.lock-screen').count() === 1
+  && await page.getByText('MySchedule').count() === 0);
+await shot('lock-screen');
+
+// Wrong PIN: rejected, and nothing about the app becomes reachable.
+await enterPin('0000');
+await page.waitForTimeout(250);
+check('a wrong PIN is rejected', await page.getByText('Incorrect PIN').count() > 0);
+check('and the app is still not reachable', await page.locator('.lock-screen').count() === 1);
+
+// Drive it to the lockout threshold (5 wrong tries; one has already happened
+// above). lockoutSeconds() disables the pad from the 5th failure onward, so
+// entering a full attempt only works while the pad is still enabled — check
+// before each one rather than assuming exactly N more attempts are needed.
+for (let i = 0; i < 4; i += 1) {
+  const stillEnabled = await page.locator('.pin-key').first().isEnabled();
+  if (!stillEnabled) break;
+  await enterPin('0000');
+  await page.waitForTimeout(220);
+}
+check('repeated wrong PINs eventually trigger a cool-off',
+  await page.getByText(/Too many tries/).count() > 0);
+check('the keypad is disabled during the cool-off',
+  await page.locator('.pin-key[disabled]').count() > 0);
+
+// The correct PIN, entered during the correct sheet's own next attempt,
+// must still work once the cool-off has been accounted for in the app's
+// own tracked failure count — verify the state machine rather than wait
+// out a real 30-second timer.
+const lockoutState = await page.evaluate(() => {
+  const raw = localStorage.getItem('myschedule.lockSession.v1');
+  return raw ? JSON.parse(raw) : null;
+});
+check('the failure count and cool-off are persisted, surviving a reload',
+  lockoutState && lockoutState.failedAttempts >= 5 && lockoutState.lockedUntil > Date.now(),
+  JSON.stringify(lockoutState));
+
+// Fast-forward past the cool-off by editing the persisted session directly
+// (equivalent to time passing) rather than actually waiting.
+await page.evaluate(() => {
+  const raw = JSON.parse(localStorage.getItem('myschedule.lockSession.v1'));
+  raw.lockedUntil = 0;
+  localStorage.setItem('myschedule.lockSession.v1', JSON.stringify(raw));
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+check('after the cool-off, the correct PIN unlocks the app',
+  await page.locator('.lock-screen').count() === 1);
+await enterPin('1234');
+await page.waitForTimeout(450);
+check('the correct PIN reveals the welcome screen, unchanged',
+  await page.locator('.lock-screen').count() === 0 && await page.getByText('MySchedule').count() > 0);
+await shot('unlocked');
+
+// Remember-me: a second reload within the window must skip the lock screen.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+check('within the remembered window, a reload skips the lock screen entirely',
+  await page.locator('.lock-screen').count() === 0);
+
+// Forgot PIN: must remove the lock without touching notes.
+await page.evaluate(() => {
+  const raw = JSON.parse(localStorage.getItem('myschedule.lockSession.v1'));
+  raw.unlockedUntil = 0;
+  localStorage.setItem('myschedule.lockSession.v1', JSON.stringify(raw));
+});
+const notesBeforeReset = await page.evaluate(() => window.myschedule.store.state.temporary.length
+  + window.myschedule.store.state.permanent.length + window.myschedule.store.state.daily.length);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+check('locked again once the remembered window is cleared',
+  await page.locator('.lock-screen').count() === 1);
+
+await page.getByText('Forgot PIN?').click();
+await page.waitForTimeout(250);
+await page.getByText('Remove the lock').click();
+await page.waitForTimeout(450);
+check('resetting the PIN unlocks straight to the welcome screen',
+  await page.locator('.lock-screen').count() === 0 && await page.getByText('MySchedule').count() > 0);
+
+const notesAfterReset = await page.evaluate(() => window.myschedule.store.state.temporary.length
+  + window.myschedule.store.state.permanent.length + window.myschedule.store.state.daily.length);
+check('resetting the PIN does not touch any notes',
+  notesAfterReset === notesBeforeReset && notesBeforeReset > 0,
+  `${notesBeforeReset} -> ${notesAfterReset}`);
+
+await page.getByText('Step in').click();
+await page.waitForTimeout(250);
+await page.getByText('The schedule').click();
+await page.waitForTimeout(300);
+await page.getByRole('tab', { name: /Settings/ }).click();
+await page.waitForTimeout(300);
+check('App Lock reads back off after a reset', await page.getByText('App Lock is off').count() > 0);
 
 // --- dark mode
 await page.emulateMedia({ colorScheme: 'dark' });

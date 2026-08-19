@@ -22,6 +22,12 @@ export const DEFAULT_SETTINGS = {
   showWelcomeOnLaunch: true,
   startTab: 'ask',
   remindToExport: true,
+  // App Lock. The PIN itself is never stored — only a salted hash. Off by
+  // default so nothing about existing behaviour changes until opted into.
+  pinEnabled: false,
+  pinSalt: null,
+  pinHash: null,
+  pinRememberMinutes: 60,
 };
 
 function blankState() {

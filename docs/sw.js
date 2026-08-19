@@ -5,7 +5,7 @@
 // next time, which means a new version is picked up on the second launch after
 // a deploy rather than needing a hard reload.
 
-const VERSION = 'myschedule-v5';
+const VERSION = 'myschedule-v6';
 
 const SHELL = [
   './',
@@ -17,6 +17,8 @@ const SHELL = [
   './js/engine.js',
   './js/store.js',
   './js/ics.js',
+  './js/crypto.js',
+  './js/lock.js',
   './js/notify.js',
   './js/ui.js',
   './js/wizard.js',

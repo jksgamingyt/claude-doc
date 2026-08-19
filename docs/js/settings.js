@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS } from './store.js';
 import {
   permission, requestPermission, notificationsSupported, isInstalled,
 } from './notify.js';
+import { openSetPinSheet, rememberSlider } from './lock.js';
 import {
   h, mount, icon, pill, chip, toggleRow, selectRow, optionSlider, emptyState,
   openSheet, confirmSheet, toast, offerFile,
@@ -185,6 +186,43 @@ export function settingsScreen(app) {
   look.appendChild(toggleRow('Offer Calendar after adding a note', null, state.settings.remindToExport,
     (value) => set('remindToExport', value)));
 
+  // --- app lock
+  const lock = h('div.settings-group');
+
+  lock.appendChild(h('div.pad',
+    h('div', { style: { display: 'flex', gap: '11px', alignItems: 'flex-start' } },
+      h('span', { style: { color: state.settings.pinEnabled ? 'var(--moss)' : 'var(--ink-3)', flex: 'none' } },
+        icon('lock', 17)),
+      h('div',
+        h('strong', { text: state.settings.pinEnabled ? 'App Lock is on' : 'App Lock is off' }),
+        h('p.small.muted', { style: { marginTop: '3px' },
+          text: 'A 4-digit PIN before the app opens. A screen lock, not encryption — it hides your notes from a glance, not from someone with the device itself.' })))));
+
+  if (state.settings.pinEnabled) {
+    lock.appendChild(h('div.pad', rememberSlider(store)));
+    lock.appendChild(h('div.pad',
+      h('button.btn.soft.wide', { type: 'button', onclick: () => openSetPinSheet(app, { onDone: () => app.render() }) },
+        'Change PIN')));
+    lock.appendChild(h('div.pad',
+      h('button.btn.danger', {
+        type: 'button', style: { width: '100%' },
+        onclick: () => confirmSheet({
+          title: 'Turn off App Lock?',
+          message: 'The app will open straight to the welcome screen again.',
+          confirmLabel: 'Turn it off',
+          onConfirm: () => {
+            set('pinEnabled', false);
+            set('pinHash', null);
+            set('pinSalt', null);
+          },
+        }),
+      }, 'Turn off App Lock')));
+  } else {
+    lock.appendChild(h('div.pad',
+      h('button.btn.wide', { type: 'button', onclick: () => openSetPinSheet(app, { onDone: () => app.render() }) },
+        icon('lock', 15), 'Turn on App Lock')));
+  }
+
   // --- data
   const data = h('div.settings-group');
   data.appendChild(h('button.rowlink', {
@@ -233,6 +271,7 @@ export function settingsScreen(app) {
     calendarCard(app),
     h('div.section-label', { text: 'Live alerts (while the app is open)' }), notifyRows,
     h('div.section-label', { text: 'Default reminders' }), defaults,
+    h('div.section-label', { text: 'App Lock' }), lock,
     h('div.section-label', { text: 'Schedule' }), schedule,
     h('div.section-label', { text: 'Look and feel' }), look,
     h('div.section-label', { text: 'Your data' }), data,

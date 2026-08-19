@@ -4,6 +4,7 @@ import { Store } from './store.js';
 import { Reminders, isInstalled, permission } from './notify.js';
 import { h, mount, icon, toast } from './ui.js';
 import { startOfDay } from './model.js';
+import { isLocked, loadSession, renderLockScreen } from './lock.js';
 import {
   welcomeScreen, scheduleScreen, temporaryScreen, permanentScreen,
   dailyScreen, dailyGreeting,
@@ -46,12 +47,24 @@ class App {
     this.screenHost = h('div', { style: { display: 'contents' } });
     this.bannerHost = h('div');
     this.tabHost = h('div');
+    // A container of its own, mounted once alongside the others below and
+    // never replaced — see the note on start().
+    this.lockHost = h('div');
 
+    // Mounted exactly once. Everything that follows updates the *contents*
+    // of one of these five containers, never this.root itself again — the
+    // lock screen included. Replacing this.root's children wholesale a
+    // second time (which an earlier version of this code did, to show the
+    // lock screen) orphans screenHost/tabHost/bannerHost: render() keeps
+    // writing into them believing they are live, but nothing they contain
+    // is reachable from the document anymore, so unlocking appeared to do
+    // nothing at all.
     mount(this.root,
       h('div.backdrop', { html: RIDGES }),
       this.bannerHost,
       this.screenHost,
       this.tabHost,
+      this.lockHost,
     );
 
     this.applyTheme();
@@ -60,7 +73,26 @@ class App {
 
   // --- launch -------------------------------------------------------------
 
+  /**
+   * The single entry point after construction. Gated behind the lock screen
+   * when App Lock is on: nothing below this — sweep, reminders, the welcome
+   * screen, any note content — runs or renders until a correct PIN lands.
+   * That is deliberate. A CSS overlay on top of already-rendered notes would
+   * still leave the real data sitting in the DOM underneath it; not calling
+   * this method at all means there is nothing there to find.
+   */
   start() {
+    if (isLocked(this.store.state.settings, loadSession())) {
+      renderLockScreen(this.lockHost, this.store, () => {
+        mount(this.lockHost); // empty it; boot() takes over from here
+        this.boot();
+      });
+      return;
+    }
+    this.boot();
+  }
+
+  boot() {
     this.store.state.now = Date.now();
     this.missed = this.reminders.catchUp();
     this.store.sweep();
