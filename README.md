@@ -130,8 +130,8 @@ what you actually wrote.
 
 ## What's in it
 
-**Welcome screen** — a nature backdrop with soft ridgelines, opening onto three
-doors: temporary notes, permanent notes, or the schedule. Can be turned off, or
+**Welcome screen** — a nature backdrop with soft ridgelines, opening onto four
+doors: temporary notes, permanent notes, daily reminders, or the schedule. Can be turned off, or
 set to open straight to one section.
 
 **Schedule** — a real calendar for the configured year (2026 by default), month
@@ -196,7 +196,7 @@ MySchedule.xcodeproj/
 
 test/
   run.mjs                 65 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             63 checks driving the real app in a real browser
+  browser.mjs             66 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```

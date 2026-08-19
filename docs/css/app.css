@@ -778,6 +778,9 @@ input.slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--sky)
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* Four doors plus a banner can outgrow a short phone; let it scroll rather
+     than clip the bottom one. */
+  overflow-y: auto;
   gap: 18px;
   padding: 20px 22px calc(20px + env(safe-area-inset-bottom));
   text-align: center;

@@ -179,7 +179,8 @@ export function settingsScreen(app) {
   look.appendChild(toggleRow('Welcome screen on launch', null, state.settings.showWelcomeOnLaunch,
     (value) => set('showWelcomeOnLaunch', value)));
   look.appendChild(selectRow('Open to', state.settings.startTab,
-    [['ask', 'Let me choose'], ['schedule', 'Schedule'], ['temporary', 'Temporary notes'], ['permanent', 'Permanent notes']],
+    [['ask', 'Let me choose'], ['schedule', 'Schedule'], ['temporary', 'Temporary notes'],
+      ['permanent', 'Permanent notes'], ['daily', 'Daily reminders']],
     (value) => set('startTab', value)));
   look.appendChild(toggleRow('Offer Calendar after adding a note', null, state.settings.remindToExport,
     (value) => set('remindToExport', value)));

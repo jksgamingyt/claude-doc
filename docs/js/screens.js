@@ -79,6 +79,8 @@ export function welcomeScreen(app) {
             store.activeTemporary.filter((n) => !n.isDone).length, 'waiting', 'temporary'),
           door('Permanent notes', 'Standing arrangements that never lapse', 'leaf', 'moss',
             state.permanent.filter((n) => !n.isMuted).length, 'standing', 'permanent'),
+          door('Daily reminders', 'A word left for tomorrow morning', 'sunrise', 'gold',
+            store.upcomingDaily.length, 'waiting', 'daily'),
           door('The schedule', "Everything you've written, laid out by day", 'calendar', 'sky',
             entriesOn(state, now).length, 'today', 'schedule'))
         : h('div', { style: { width: '100%', maxWidth: '340px' } },

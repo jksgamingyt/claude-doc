@@ -124,6 +124,9 @@ await shot('welcome');
 // --- welcome -> doors -> schedule
 await tapText('Step in');
 check('doors open', await page.getByText('Temporary notes').count() > 0);
+check('every section has a door', await page.locator('.door').count() === 4,
+  `${await page.locator('.door').count()} doors`);
+check('daily reminders is one of them', await page.getByText('Daily reminders').count() > 0);
 await shot('doors');
 
 await tapText('The schedule');
@@ -442,9 +445,11 @@ await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(500);
 await page.getByText('Step in').click();
 await page.waitForTimeout(250);
-await page.getByText('Temporary notes').click();
+await page.getByText('Daily reminders').click();
 await page.waitForTimeout(400);
 check('it does not greet you twice', await page.locator('.greeting').count() === 0);
+check('the daily door lands on the daily section',
+  await page.getByText('Left for the morning').count() > 0);
 
 // --- dark mode
 await page.emulateMedia({ colorScheme: 'dark' });
