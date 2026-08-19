@@ -20,6 +20,13 @@ const TABS = [
 
 const HIDE_INSTALL_KEY = 'myschedule.hideInstallHint';
 
+/** Is a text field focused right now? Re-rendering would close the keyboard. */
+function isTyping() {
+  const active = document.activeElement;
+  if (!active) return false;
+  return active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable;
+}
+
 class App {
   constructor(root) {
     this.root = root;
@@ -67,7 +74,11 @@ class App {
     this.clock = setInterval(() => {
       const before = this.store.state.now;
       this.store.state.now = Date.now();
-      if (new Date(before).getMinutes() !== new Date().getMinutes()) this.render();
+      if (new Date(before).getMinutes() === new Date().getMinutes()) return;
+      // Never rebuild the screen out from under someone mid-sentence; the
+      // minute labels can wait until they stop typing.
+      if (isTyping()) return;
+      this.render();
     }, 20000);
 
     document.addEventListener('visibilitychange', () => {

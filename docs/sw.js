@@ -5,7 +5,7 @@
 // next time, which means a new version is picked up on the second launch after
 // a deploy rather than needing a hard reload.
 
-const VERSION = 'myschedule-v3';
+const VERSION = 'myschedule-v4';
 
 const SHELL = [
   './',

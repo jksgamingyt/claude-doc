@@ -196,7 +196,7 @@ MySchedule.xcodeproj/
 
 test/
   run.mjs                 65 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             66 checks driving the real app in a real browser
+  browser.mjs             70 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -229,8 +229,9 @@ morning, and the generated calendar file down to its line endings and escaping.
 walking both wizards end to end, saving a note as silent and re-opening it to
 confirm the answer survives the round trip, leaving a daily reminder and
 re-opening the app to be greeted by it exactly once, checking persistence across
-a reload, dark mode, and that it still works with the network switched off. It
-fails on any console error.
+a reload, dark mode, that typing into a field never costs it focus (a
+re-render detaches the element and iOS closes the keyboard), and that it still
+works with the network switched off. It fails on any console error.
 
 ---
 

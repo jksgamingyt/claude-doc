@@ -104,6 +104,31 @@ async function setSlider(label, index) {
   await page.waitForTimeout(200);
 }
 
+/**
+ * Type into a field and report whether it kept focus.
+ *
+ * Re-rendering a screen detaches the focused element, and iOS closes the
+ * keyboard the moment that happens — so "still focused after a keystroke" is
+ * the thing worth asserting.
+ */
+async function typingKeepsFocus(selector) {
+  const field = page.locator(selector).first();
+  await field.click();
+  await page.waitForTimeout(120);
+  await page.keyboard.type('ab');
+  await page.waitForTimeout(220);
+  return page.evaluate((sel) => {
+    const target = document.querySelector(sel);
+    if (!target) return { found: false };
+    return {
+      found: true,
+      focused: document.activeElement === target,
+      attached: document.contains(target),
+      value: target.value,
+    };
+  }, selector);
+}
+
 async function sliderReadout(label) {
   return page.evaluate((wanted) => {
     const field = [...document.querySelectorAll('.slider-field')]
@@ -140,12 +165,27 @@ await page.waitForTimeout(200);
 check('temporary tab empty state', await page.getByText('Nothing on the clock').count() > 0);
 await shot('temporary-empty');
 
+const typingInComposer = await typingKeepsFocus('.composer input');
+check('typing in the compose bar keeps the keyboard up',
+  typingInComposer.focused === true && typingInComposer.value === 'ab',
+  JSON.stringify(typingInComposer));
+
 const composer = page.locator('.composer input');
 await composer.fill('Pay the rent');
 await composer.press('Enter');
 await page.waitForTimeout(300);
 check('wizard opens on Enter', await page.locator('.sheet').count() === 1);
 check('wizard step 1 asks for the day', await page.getByText('Which day is this due?').count() > 0);
+
+const typingInTitle = await typingKeepsFocus('.sheet-body input.textinput');
+check('typing the note title keeps the keyboard up',
+  typingInTitle.focused === true && typingInTitle.attached === true,
+  JSON.stringify(typingInTitle));
+check('and the characters actually land',
+  typingInTitle.value === 'Pay the rentab', typingInTitle.value);
+// Put it back the way it was.
+await page.locator('.sheet-body input.textinput').first().fill('Pay the rent');
+await page.waitForTimeout(150);
 await shot('wizard-day');
 
 check('the day step is a slider, not a row of buttons',
@@ -392,6 +432,13 @@ await dailyComposer.fill('Bring the charger');
 await dailyComposer.press('Enter');
 await page.waitForTimeout(320);
 check('writing one asks which morning', await page.getByText('Which morning?').count() > 0);
+
+const typingInDaily = await typingKeepsFocus('.sheet-body input.textinput');
+check('typing in the daily sheet keeps the keyboard up',
+  typingInDaily.focused === true && typingInDaily.attached === true,
+  JSON.stringify(typingInDaily));
+await page.locator('.sheet-body input.textinput').first().fill('Bring the charger');
+await page.waitForTimeout(150);
 check('it defaults to tomorrow',
   (await sliderReadout('Greet me')) === 'Tomorrow morning',
   String(await sliderReadout('Greet me')));

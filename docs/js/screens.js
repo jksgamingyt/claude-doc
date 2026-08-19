@@ -670,7 +670,14 @@ export function openDailySheet(app, { seed, editing }) {
       value: draft.text,
       placeholder: 'What should tomorrow-you know?',
       'aria-label': 'Reminder',
-      oninput: (event) => { draft.text = event.target.value; render(); },
+      // Deliberately does not re-render. render() re-mounts the sheet body,
+      // which detaches this field from the document, and iOS drops the
+      // keyboard the moment the focused element leaves the DOM. Only the save
+      // button depends on this value, so nudge it directly.
+      oninput: (event) => {
+        draft.text = event.target.value;
+        save.disabled = !draft.text.trim();
+      },
     });
 
     const save = h('button.btn', { type: 'button' }, editing ? 'Save' : 'Leave it for the morning');

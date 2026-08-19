@@ -82,7 +82,13 @@ function runWizard({ title, subtitle, tone, steps, draft, onFinish, finishLabel 
       value: draft.title,
       placeholder: 'Your note',
       'aria-label': 'Note',
-      oninput: (event) => { draft.title = event.target.value; refresh(); },
+      // Same reason as the daily sheet: refresh() re-mounts the body and
+      // takes this field out of the document with it, closing the keyboard.
+      // Only the Next button reads the title, so update just that.
+      oninput: (event) => {
+        draft.title = event.target.value;
+        nextBtn.disabled = !canAdvance();
+      },
     });
 
     const stepDots = h(`div.steps${tone ? '.' + tone : ''}`);
