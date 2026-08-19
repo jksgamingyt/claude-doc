@@ -496,6 +496,99 @@ test('export skips notes that are done or already past', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Daily reminders
+// ---------------------------------------------------------------------------
+
+test('a daily reminder defaults to tomorrow morning', () => {
+  const reminder = M.makeDaily({ text: 'Bring the charger' });
+  assert.equal(reminder.forDate, M.startOfDay(Date.now() + M.DAY));
+  assert.equal(reminder.seenAt, null);
+});
+
+test('a reminder for tomorrow is not pending today', () => {
+  const store = freshStore();
+  store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19) });
+  assert.equal(store.pendingDaily(at(2026, 7, 18, 8, 0)).length, 0);
+});
+
+test('a reminder for today is pending', () => {
+  const store = freshStore();
+  store.addDaily({ text: 'Charger', forDate: at(2026, 7, 18) });
+  assert.equal(store.pendingDaily(at(2026, 7, 18, 8, 0)).length, 1);
+});
+
+test('a reminder left at 11:59pm is pending the next morning', () => {
+  const store = freshStore();
+  // Written just before midnight, aimed at the morning after.
+  store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19), createdAt: at(2026, 7, 18, 23, 59) });
+  assert.equal(store.pendingDaily(at(2026, 7, 18, 23, 59)).length, 0, 'not that same night');
+  assert.equal(store.pendingDaily(at(2026, 7, 19, 7, 0)).length, 1, 'waiting in the morning');
+});
+
+test('a reminder slept through still waits, rather than vanishing', () => {
+  const store = freshStore();
+  store.addDaily({ text: 'Charger', forDate: at(2026, 7, 15) });
+  const pending = store.pendingDaily(at(2026, 7, 18, 9, 0));
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].text, 'Charger');
+});
+
+test('being seen stands a reminder down for good', () => {
+  const store = freshStore();
+  const reminder = store.addDaily({ text: 'Charger', forDate: at(2026, 7, 18) });
+  store.markDailySeen([reminder.id], at(2026, 7, 18, 8, 0));
+  assert.equal(store.pendingDaily(at(2026, 7, 18, 9, 0)).length, 0);
+  assert.equal(store.pendingDaily(at(2026, 7, 19, 9, 0)).length, 0, 'nor the next day');
+});
+
+test('several reminders for one morning all come through, oldest first', () => {
+  const store = freshStore();
+  store.addDaily({ text: 'Second', forDate: at(2026, 7, 18) });
+  store.addDaily({ text: 'First', forDate: at(2026, 7, 16) });
+  const pending = store.pendingDaily(at(2026, 7, 18, 9, 0));
+  assert.deepEqual(pending.map((r) => r.text), ['First', 'Second']);
+});
+
+test('delivered reminders are cleared out on sweep, unseen ones are not', () => {
+  const store = freshStore();
+  const now = at(2026, 7, 18, 9, 0);
+  store.state.settings.archiveRetentionDays = 30;
+  const old = store.addDaily({ text: 'Ancient', forDate: at(2026, 4, 1) });
+  store.markDailySeen([old.id], at(2026, 4, 1, 8, 0));
+  store.addDaily({ text: 'Still waiting', forDate: at(2026, 4, 2) });
+
+  store.sweep(now);
+  assert.deepEqual(store.state.daily.map((r) => r.text), ['Still waiting']);
+});
+
+test('daily reminders survive a save and reload', () => {
+  const store = freshStore();
+  store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19) });
+  store.saveNow();
+  const reloaded = new S.Store();
+  assert.equal(reloaded.state.daily.length, 1);
+  assert.equal(reloaded.state.daily[0].text, 'Charger');
+});
+
+test('a malformed daily reminder is skipped, not fatal', () => {
+  memory.clear();
+  localStorage.setItem('myschedule.state.v1', JSON.stringify({
+    daily: [{ text: 'Good', forDate: at(2026, 7, 19) }, { text: 'no date' }, null],
+  }));
+  const store = new S.Store();
+  assert.equal(store.state.daily.length, 1);
+});
+
+test('daily reminders do not appear on the calendar', () => {
+  // They greet you; they are not schedule entries. Guards against them
+  // quietly leaking into the day grid.
+  const store = freshStore();
+  store.addDaily({ text: 'Charger', forDate: at(2026, 7, 19) });
+  const state = { ...store.state, settings: { ...S.DEFAULT_SETTINGS }, now: at(2026, 7, 19, 9, 0) };
+  assert.equal(E.entriesOn(state, at(2026, 7, 19)).length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // Reminder slots (the two nudge sliders)
 // ---------------------------------------------------------------------------
 

@@ -374,6 +374,78 @@ check('re-opening a silent note remembers the answer', noPressed === 'true', Str
 await page.getByText('Cancel').first().click();
 await page.waitForTimeout(250);
 
+// --- daily reminders: leave one tonight, be greeted on its morning
+check('there is a Daily tab', await page.getByRole('tab', { name: /Daily/ }).count() > 0);
+check('the tab bar carries all five sections',
+  await page.locator('.tabbar button').count() === 5);
+
+await page.getByRole('tab', { name: /Daily/ }).click();
+await page.waitForTimeout(250);
+check('the daily section explains itself when empty',
+  await page.getByText('Nothing waiting for the morning').count() > 0);
+
+const dailyComposer = page.locator('.composer input');
+await dailyComposer.fill('Bring the charger');
+await dailyComposer.press('Enter');
+await page.waitForTimeout(320);
+check('writing one asks which morning', await page.getByText('Which morning?').count() > 0);
+check('it defaults to tomorrow',
+  (await sliderReadout('Greet me')) === 'Tomorrow morning',
+  String(await sliderReadout('Greet me')));
+await shot('daily-sheet');
+
+// Aim it at this morning so the greeting is due on the next open.
+await setSlider('Greet me', 0);
+check('it can be aimed at today',
+  (await sliderReadout('Greet me')) === 'This morning',
+  String(await sliderReadout('Greet me')));
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(400);
+check('the reminder is listed as waiting',
+  await page.getByText('Bring the charger').count() > 0);
+await shot('daily-list');
+
+// It must not greet you in the same breath as writing it.
+check('writing one does not greet you immediately',
+  await page.locator('.greeting').count() === 0);
+
+// Re-open the app: welcome first, greeting second.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+check('a reload still lands on the welcome screen first',
+  await page.getByText('Step in').count() > 0 && await page.locator('.greeting').count() === 0);
+
+await page.getByText('Step in').click();
+await page.waitForTimeout(260);
+check('the welcome screen is not interrupted by the greeting',
+  await page.locator('.greeting').count() === 0);
+
+await page.getByText('Temporary notes').click();
+await page.waitForTimeout(400);
+check('the greeting arrives after the welcome screen',
+  await page.locator('.greeting').count() === 1);
+check('it carries what was left', await page.getByText('Bring the charger').count() > 0);
+await shot('daily-greeting');
+
+await page.getByText('Begin the day').click();
+await page.waitForTimeout(350);
+check('dismissing it clears the greeting', await page.locator('.greeting').count() === 0);
+
+const seen = await page.evaluate(() => {
+  const reminder = window.myschedule.store.state.daily.find((r) => r.text === 'Bring the charger');
+  return reminder ? Boolean(reminder.seenAt) : null;
+});
+check('being greeted marks it as said', seen === true, String(seen));
+
+// And it stands down for good.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(500);
+await page.getByText('Step in').click();
+await page.waitForTimeout(250);
+await page.getByText('Temporary notes').click();
+await page.waitForTimeout(400);
+check('it does not greet you twice', await page.locator('.greeting').count() === 0);
+
 // --- dark mode
 await page.emulateMedia({ colorScheme: 'dark' });
 await page.waitForTimeout(300);

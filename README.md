@@ -116,6 +116,12 @@ just never buzzes. Answer yes and the nudge options open up — as many lead tim
 as you like, each becoming its own alert, plus a last word when a temporary note
 expires.
 
+**Daily reminders** are a word left for tomorrow-morning-you. Write one tonight
+— any time up to 11:59pm — and the next time you open the app on that day it
+greets you on its own screen, straight after the welcome, once. Sleep through it
+and it waits rather than disappearing. They have no clock time and never sit on
+the calendar; they simply meet you at the door.
+
 **The schedule** is a view, not a store. Every day is assembled from the two
 notes sections each time you look at it, so it can never fall out of step with
 what you actually wrote.
@@ -141,6 +147,9 @@ and when it will clear.
 chosen days, every N days, a day of the month), each with a start date, a time
 of day and a duration. Pause one to hide it without losing it.
 
+**Daily** — everything waiting for a morning, plus what has already been said.
+Tap any of them to change the morning or take it back.
+
 **Recently cleared** — expired and removed notes land here rather than
 vanishing. Bring any of them back with one tap. Kept 30 days by default.
 
@@ -154,8 +163,9 @@ backup file you can send yourself, week-starts-on-Monday, and a plain-language
 
 There is also a complete **native SwiftUI version** in `MySchedule/` and
 `MySchedule.xcodeproj`. Same model, same design, and it can schedule real
-notifications by itself with no calendar detour. It is one revision behind on
-presentation: its option pickers are still chips rather than sliders. It needs a Mac with Xcode 15+
+notifications by itself with no calendar detour. It is a couple of revisions
+behind: its option pickers are still chips rather than sliders, and it has no
+daily reminders section. It needs a Mac with Xcode 15+
 to build — see the section below on the repository layout. Nothing about the web
 app depends on it; keep it or ignore it.
 
@@ -185,8 +195,8 @@ MySchedule/               the native SwiftUI version (needs a Mac)
 MySchedule.xcodeproj/
 
 test/
-  run.mjs                 50 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             38 checks driving the real app in a real browser
+  run.mjs                 65 logic tests — recurrence, expiry, sweep, ICS
+  browser.mjs             63 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -212,13 +222,14 @@ npm run shots        # browser suite + screenshots of every screen
 `test/run.mjs` covers the parts worth being sure about: recurrence across
 daylight-saving boundaries, the last-day-of-a-short-month fallback, expiry and
 lingering, the sweep, lossy loading of a corrupt record, silent notes staying
-silent everywhere, and the generated calendar file down to its line endings and
-escaping.
+silent everywhere, a daily reminder written at 11:59pm waiting until the next
+morning, and the generated calendar file down to its line endings and escaping.
 
 `test/browser.mjs` drives the actual app in Chromium at iPhone dimensions —
 walking both wizards end to end, saving a note as silent and re-opening it to
-confirm the answer survives the round trip, checking persistence across a
-reload, dark mode, and that it still works with the network switched off. It
+confirm the answer survives the round trip, leaving a daily reminder and
+re-opening the app to be greeted by it exactly once, checking persistence across
+a reload, dark mode, and that it still works with the network switched off. It
 fails on any console error.
 
 ---

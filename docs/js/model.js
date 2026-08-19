@@ -328,6 +328,35 @@ export function newId() {
   return 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/**
+ * A daily reminder: something you leave tonight for tomorrow-morning-you.
+ *
+ * Unlike the other two kinds it has no time of day and never sits on the
+ * clock — it simply greets you the first time you open the app on its day,
+ * once, and then stands down.
+ */
+export function makeDaily(fields) {
+  return {
+    id: fields.id || newId(),
+    text: fields.text,
+    forDate: startOfDay(fields.forDate || (Date.now() + DAY)),
+    createdAt: fields.createdAt || Date.now(),
+    seenAt: fields.seenAt || null,
+  };
+}
+
+/** Which mornings a daily reminder can be aimed at, in days from today. */
+export const DAILY_OFFSETS = [0, 1, 2, 3, 7];
+
+export function dailyOffsetLabel(days) {
+  switch (days) {
+    case 0: return 'This morning';
+    case 1: return 'Tomorrow morning';
+    case 7: return 'A week from now';
+    default: return `In ${days} mornings`;
+  }
+}
+
 export function makeTemporary(fields) {
   const linger = fields.linger || 'atDue';
   return {

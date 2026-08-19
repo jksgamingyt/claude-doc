@@ -1,7 +1,7 @@
 // store.js — the single source of truth, and the only thing that touches storage.
 
 import {
-  DAY, startOfDay, expiryFor, makeTemporary, makePermanent,
+  DAY, startOfDay, expiryFor, makeTemporary, makePermanent, makeDaily,
 } from './model.js';
 import { signatureTemporary, signaturePermanent } from './ics.js';
 
@@ -29,6 +29,7 @@ function blankState() {
     version: 1,
     temporary: [],
     permanent: [],
+    daily: [],
     archive: [],
     exported: {},
     settings: { ...DEFAULT_SETTINGS },
@@ -75,6 +76,11 @@ export function load() {
   }
   if (Array.isArray(raw.permanent)) {
     state.permanent = raw.permanent.map(revivePermanent).filter(Boolean);
+  }
+  if (Array.isArray(raw.daily)) {
+    state.daily = raw.daily
+      .filter((item) => item && typeof item.text === 'string' && typeof item.forDate === 'number')
+      .map(makeDaily);
   }
   if (Array.isArray(raw.archive)) {
     state.archive = raw.archive.filter((item) => item && typeof item.title === 'string');
@@ -215,6 +221,78 @@ export class Store {
     this.changed();
   }
 
+  // --- daily reminders
+
+  addDaily(fields) {
+    const reminder = makeDaily(fields);
+    this.state.daily.push(reminder);
+    this.changed();
+    return reminder;
+  }
+
+  updateDaily(fields) {
+    const index = this.state.daily.findIndex((r) => r.id === fields.id);
+    if (index < 0) return null;
+    const reminder = makeDaily({ ...this.state.daily[index], ...fields });
+    this.state.daily[index] = reminder;
+    this.changed();
+    return reminder;
+  }
+
+  deleteDaily(id) {
+    this.state.daily = this.state.daily.filter((r) => r.id !== id);
+    this.changed();
+  }
+
+  /**
+   * What should greet you right now: anything aimed at today or at a morning
+   * that has already gone by without being seen. A reminder you slept through
+   * still gets said, once, rather than disappearing.
+   */
+  pendingDaily(now = Date.now()) {
+    const today = startOfDay(now);
+    return this.state.daily
+      .filter((reminder) => !reminder.seenAt && reminder.forDate <= today)
+      .sort((a, b) => a.forDate - b.forDate);
+  }
+
+  markDailySeen(ids, now = Date.now()) {
+    const wanted = new Set(ids);
+    let touched = false;
+    for (const reminder of this.state.daily) {
+      if (wanted.has(reminder.id) && !reminder.seenAt) {
+        reminder.seenAt = now;
+        touched = true;
+      }
+    }
+    if (touched) this.changed();
+  }
+
+  get upcomingDaily() {
+    const today = startOfDay(this.state.now || Date.now());
+    return this.state.daily
+      .filter((reminder) => !reminder.seenAt && reminder.forDate >= today)
+      .sort((a, b) => a.forDate - b.forDate);
+  }
+
+  get deliveredDaily() {
+    return this.state.daily
+      .filter((reminder) => reminder.seenAt)
+      .sort((a, b) => b.seenAt - a.seenAt);
+  }
+
+  /** Delivered reminders are kept for a while, then cleared out on sweep. */
+  trimDaily(now = Date.now()) {
+    const days = this.state.settings.archiveRetentionDays;
+    if (!days || days <= 0) return 0;
+    const cutoff = now - days * DAY;
+    const before = this.state.daily.length;
+    this.state.daily = this.state.daily.filter(
+      (reminder) => !reminder.seenAt || reminder.seenAt >= cutoff,
+    );
+    return before - this.state.daily.length;
+  }
+
   // --- archive
 
   restore(entry) {
@@ -273,7 +351,7 @@ export class Store {
    */
   sweep(now = Date.now()) {
     const report = { expired: [], trimmed: 0, at: now };
-    report.trimmed = this.trimArchive();
+    report.trimmed = this.trimArchive() + this.trimDaily(now);
 
     const expired = this.state.temporary.filter((note) => note.expiresAt <= now);
     if (expired.length) {
@@ -342,6 +420,9 @@ export class Store {
     if (replace) {
       this.state.temporary = incomingTemp;
       this.state.permanent = incomingPerm;
+      this.state.daily = Array.isArray(raw.daily)
+        ? raw.daily.filter((item) => item && typeof item.text === 'string').map(makeDaily)
+        : [];
       this.state.archive = Array.isArray(raw.archive) ? raw.archive : [];
       this.state.exported = raw.exported && typeof raw.exported === 'object' ? raw.exported : {};
       if (raw.settings) this.state.settings = { ...DEFAULT_SETTINGS, ...raw.settings };

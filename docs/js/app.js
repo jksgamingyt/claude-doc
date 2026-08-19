@@ -3,8 +3,10 @@
 import { Store } from './store.js';
 import { Reminders, isInstalled, permission } from './notify.js';
 import { h, mount, icon, toast } from './ui.js';
+import { startOfDay } from './model.js';
 import {
   welcomeScreen, scheduleScreen, temporaryScreen, permanentScreen,
+  dailyScreen, dailyGreeting,
 } from './screens.js';
 import { settingsScreen, sendToCalendar, openHowItWorks } from './settings.js';
 
@@ -12,6 +14,7 @@ const TABS = [
   { key: 'schedule', label: 'Schedule', icon: 'calendar' },
   { key: 'temporary', label: 'Temporary', icon: 'hourglass' },
   { key: 'permanent', label: 'Permanent', icon: 'leaf' },
+  { key: 'daily', label: 'Daily', icon: 'sunrise' },
   { key: 'settings', label: 'Settings', icon: 'gear' },
 ];
 
@@ -26,6 +29,7 @@ class App {
     this.tab = 'schedule';
     this.showingWelcome = this.store.state.settings.showWelcomeOnLaunch;
     this.missed = [];
+    this.greetedOn = null;
     this.dismissedInstall = localStorage.getItem(HIDE_INSTALL_KEY) === '1';
 
     if (!this.showingWelcome && this.store.state.settings.startTab !== 'ask') {
@@ -55,6 +59,9 @@ class App {
     this.store.sweep();
     this.armReminders();
     this.render();
+    // With the welcome screen switched off there is no door to walk through,
+    // so the greeting belongs here instead.
+    if (!this.showingWelcome) this.maybeGreet();
 
     // Keep relative labels honest and roll the day over.
     this.clock = setInterval(() => {
@@ -70,6 +77,8 @@ class App {
       this.store.sweep();
       this.armReminders();
       this.render();
+      // Coming back after midnight counts as opening the app on a new day.
+      if (!this.showingWelcome) this.maybeGreet();
     });
 
     window.addEventListener('pagehide', () => this.store.saveNow());
@@ -91,6 +100,21 @@ class App {
     this.tab = tab;
     this.showingWelcome = false;
     this.render();
+    // The reminder meets you on the far side of the welcome screen.
+    this.maybeGreet();
+  }
+
+  /** Show whatever was left for this morning, once. */
+  maybeGreet() {
+    const now = this.store.state.now || Date.now();
+    const today = startOfDay(now);
+    if (this.greetedOn === today) return;
+
+    const pending = this.store.pendingDaily(now);
+    if (!pending.length) return;
+
+    this.greetedOn = today;
+    dailyGreeting(this, pending, () => this.render());
   }
 
   // --- hooks called by the wizards ---------------------------------------
@@ -136,7 +160,8 @@ class App {
     }
 
     let screen;
-    if (this.tab === 'temporary') screen = temporaryScreen(this);
+    if (this.tab === 'daily') screen = dailyScreen(this);
+    else if (this.tab === 'temporary') screen = temporaryScreen(this);
     else if (this.tab === 'permanent') screen = permanentScreen(this);
     else if (this.tab === 'settings') screen = settingsScreen(this);
     else screen = scheduleScreen(this);

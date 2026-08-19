@@ -1,7 +1,8 @@
 // screens.js — welcome, schedule, and the two notes sections.
 
 import {
-  TAGS, LINGERS, startOfDay, addDays, addMonths, startOfMonth, sameDay, sameMonth,
+  TAGS, LINGERS, DAILY_OFFSETS, dailyOffsetLabel,
+  startOfDay, addDays, addMonths, startOfMonth, sameDay, sameMonth,
   formatMonth, formatMonthYear, formatMonthDay, formatWeekday, formatDayHeadline,
   formatFull, formatTime, formatDuration, formatMinutes, countdown, dayName,
   recurrenceSummary, leadShort, leadLong,
@@ -13,6 +14,7 @@ import {
 import { GROUP_LABELS } from './store.js';
 import {
   h, mount, icon, pill, chip, emptyState, openSheet, confirmSheet, toast, leafMark,
+  optionSlider, fieldBlock,
 } from './ui.js';
 import { openTemporaryWizard, openPermanentWizard } from './wizard.js';
 
@@ -574,6 +576,240 @@ function permanentRow(app, note) {
       next != null && h('span.tiny.faint', icon('arrowRight', 11), ' ', `Next ${dayName(next, now)}`))),
   );
 }
+
+// ---------------------------------------------------------------------------
+// Daily reminders — a note you leave tonight for tomorrow-morning-you
+// ---------------------------------------------------------------------------
+
+export function dailyScreen(app) {
+  const store = app.store;
+  const state = store.state;
+  const root = h('div.screen');
+  const body = h('div.scroll');
+
+  const upcoming = store.upcomingDaily;
+  const delivered = store.deliveredDaily;
+
+  if (!upcoming.length && !delivered.length) {
+    body.appendChild(emptyState('sunrise', 'Nothing waiting for the morning',
+      'Write something below before you turn in. The next time you open the app on that day, it greets you straight after the welcome screen — once, then it stands down.'));
+  } else {
+    body.appendChild(h('div.summary', { style: { marginTop: '4px' } },
+      icon('sunrise', 16),
+      h('div',
+        h('strong', 'Left for the morning'),
+        h('div.small.muted', 'Each one greets you once, the first time you open the app on its day. Sleep through it and it still waits.'))));
+
+    if (upcoming.length) {
+      body.appendChild(h('div.section-label', { text: `${upcoming.length} waiting` }));
+      for (const reminder of upcoming) body.appendChild(dailyRow(app, reminder, false));
+    }
+
+    if (delivered.length) {
+      body.appendChild(h('div.section-label.moss', { text: 'Already said' }));
+      for (const reminder of delivered) body.appendChild(dailyRow(app, reminder, true));
+    }
+  }
+
+  mount(root,
+    h('div.topbar', h('h1', 'Daily')),
+    body,
+    composer(app, {
+      tone: '',
+      iconName: 'sunrise',
+      placeholder: 'Something for tomorrow morning…',
+      hint: 'Return asks which morning it should greet you.',
+      onSubmit: (text) => openDailySheet(app, { seed: text }),
+    }),
+  );
+
+  return root;
+}
+
+function dailyRow(app, reminder, delivered) {
+  const now = app.store.state.now;
+  const today = startOfDay(now);
+  const late = !reminder.seenAt && reminder.forDate < today;
+
+  return h(`button.note${delivered ? '.done' : ''}`, {
+    type: 'button',
+    onclick: () => openDailySheet(app, { editing: reminder }),
+  },
+  h('div.rail', { style: { background: delivered ? 'var(--tag-bark)' : 'var(--tag-gold)' } }),
+  h('div.grow',
+    h('div.title', { text: reminder.text }),
+    h('div.meta',
+      delivered
+        ? pill(`Said ${dayName(reminder.seenAt, now)}`, 'grey', 'check')
+        : pill(dayName(reminder.forDate, now), late ? 'clay' : 'moss', 'sunrise'),
+      late && h('span.tiny', { style: { color: 'var(--clay)' }, text: 'still waiting' }),
+      h('span.tiny.faint', { text: `written ${dayName(reminder.createdAt, now).toLowerCase()}` }))),
+  );
+}
+
+/** One question: which morning. */
+export function openDailySheet(app, { seed, editing }) {
+  const store = app.store;
+  const today = startOfDay(store.state.now || Date.now());
+
+  const draft = editing
+    ? {
+      id: editing.id,
+      text: editing.text,
+      forDate: editing.forDate,
+      offset: Math.max(0, Math.round((editing.forDate - today) / 86400000)),
+      createdAt: editing.createdAt,
+      seenAt: editing.seenAt,
+    }
+    : { text: seed || '', forDate: addDays(today, 1), offset: 1 };
+
+  openSheet((sheet) => {
+    const textInput = h('input.textinput', {
+      value: draft.text,
+      placeholder: 'What should tomorrow-you know?',
+      'aria-label': 'Reminder',
+      oninput: (event) => { draft.text = event.target.value; render(); },
+    });
+
+    const save = h('button.btn', { type: 'button' }, editing ? 'Save' : 'Leave it for the morning');
+
+    function render() {
+      mount(sheet.head,
+        h('button', { type: 'button', onclick: sheet.close }, 'Cancel'),
+        h('div.mid', h('strong', { text: editing ? 'Edit reminder' : 'Daily reminder' })),
+        h('span', { style: { width: '54px' } }));
+
+      const nearestOffset = DAILY_OFFSETS.includes(draft.offset) ? draft.offset : 1;
+
+      mount(sheet.body,
+        h('div.card.raised', { style: { marginBottom: '18px' } },
+          h('div.tiny.faint', { style: { letterSpacing: '0.08em', marginBottom: '7px' },
+            text: 'DAILY · GREETS YOU ONCE' }),
+          textInput),
+
+        fieldBlock('Which morning?', 'Set it tonight and it meets you when you open the app.',
+          optionSlider({
+            options: DAILY_OFFSETS,
+            value: nearestOffset,
+            format: dailyOffsetLabel,
+            label: 'Greet me',
+            onInput: (days) => {
+              draft.offset = days;
+              draft.forDate = addDays(today, days);
+            },
+            onCommit: render,
+          }),
+          h('div', { style: { marginTop: '12px' } },
+            h('input', {
+              type: 'date',
+              value: new Date(draft.forDate).toISOString().slice(0, 10),
+              'aria-label': 'Exact morning',
+              onchange: (event) => {
+                const [y, m, d] = event.target.value.split('-').map(Number);
+                if (y && m && d) {
+                  draft.forDate = new Date(y, m - 1, d).getTime();
+                  draft.offset = Math.round((draft.forDate - today) / 86400000);
+                  render();
+                }
+              },
+            }))),
+
+        h('div.summary',
+          icon('sunrise', 16),
+          h('div',
+            h('strong', { text: `Greets you on ${formatDayHeadline(draft.forDate)}` }),
+            h('div.small.muted', {
+              text: draft.forDate <= today
+                ? 'That is today — it will show the next time you open the app.'
+                : 'Straight after the welcome screen, once.',
+            }))),
+      );
+
+      save.disabled = !draft.text.trim();
+      save.onclick = () => {
+        if (!draft.text.trim()) return;
+        const fields = {
+          id: draft.id,
+          text: draft.text.trim(),
+          forDate: draft.forDate,
+          createdAt: draft.createdAt,
+          seenAt: draft.seenAt,
+        };
+        if (editing) store.updateDaily(fields);
+        else store.addDaily(fields);
+        sheet.close();
+        app.render();
+      };
+
+      mount(sheet.foot,
+        editing && h('button.btn.soft', {
+          type: 'button',
+          onclick: () => {
+            sheet.close();
+            confirmSheet({
+              title: 'Remove this reminder?',
+              message: 'It will not greet you.',
+              onConfirm: () => { store.deleteDaily(editing.id); app.render(); },
+            });
+          },
+        }, icon('trash', 14)),
+        save);
+    }
+
+    render();
+  });
+}
+
+/**
+ * The morning greeting. Shown once, after the welcome screen, on the day a
+ * reminder was left for.
+ */
+export function dailyGreeting(app, reminders, onDone) {
+  const now = app.store.state.now || Date.now();
+  const today = startOfDay(now);
+  const hour = new Date(now).getHours();
+  const opening = hour < 12 ? 'Good morning.' : (hour < 18 ? 'Before the day gets away.' : 'A word from last night.');
+
+  const overlay = h('div.greeting',
+    h('div.greeting-bg', { html: GREETING_RIDGES }),
+    h('div.greeting-inner',
+      h('div.mark', leafMark(58)),
+      h('div.date', { text: formatDayHeadline(now) }),
+      h('h1', { text: opening }),
+      h('p.muted', { text: reminders.length === 1
+        ? 'You left yourself a note.'
+        : `You left yourself ${reminders.length} notes.` }),
+
+      h('div.greeting-list',
+        ...reminders.map((reminder) => h('div.card.raised.greeting-card',
+          h('div.rail', { style: { background: 'var(--tag-gold)' } }),
+          h('div.grow',
+            h('div', { text: reminder.text }),
+            reminder.forDate < today && h('div.tiny.faint', { style: { marginTop: '5px' },
+              text: `Left for ${dayName(reminder.forDate, now)} — it waited for you.` }))))),
+
+      h('button.btn.wide', {
+        type: 'button',
+        onclick: () => {
+          app.store.markDailySeen(reminders.map((r) => r.id));
+          overlay.remove();
+          if (onDone) onDone();
+        },
+      }, 'Begin the day', icon('arrowRight', 15)),
+    ),
+  );
+
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+const GREETING_RIDGES = `
+<svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+  <path d="M0 20 Q 16 12 30 19 T 58 17 T 84 21 T 100 16 L100 40 L0 40 Z"
+        fill="var(--moss)" opacity="0.12"/>
+  <path d="M0 28 Q 20 22 36 28 T 68 26 T 100 27 L100 40 L0 40 Z"
+        fill="var(--moss)" opacity="0.15"/>
+</svg>`;
 
 // ---------------------------------------------------------------------------
 // Compose bar
