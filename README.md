@@ -201,11 +201,26 @@ so setting it via `<meta>` would silently do nothing — shipping a no-op
 directive is worse than being honest about not having it.
 
 **Moving between devices stays manual, by choice**, not as a placeholder for
-something better: Settings → **Back up my notes** hands you a file through
-iOS's share sheet, where **AirDrop to your other iPhone is instant** — faster
-than any login would be, and nothing leaves Apple's own transport. **Restore
-from a backup** takes that file back in, either picked from Files or pasted
-as text, and merges rather than duplicates.
+something better. Three ways, in Settings → Your data:
+
+- **Copy for iCloud** puts the whole backup on the clipboard as text. Paste it
+  into a Note, a Reminder, or a message to yourself — anything that already
+  syncs across your devices via iCloud does the carrying, for free, with
+  nothing new to set up. On the other device, **Restore from a backup** →
+  **Paste from clipboard** pulls it straight back in (falling back to a
+  manual paste into the box if Safari declines the programmatic read, which
+  it sometimes does — the app never breaks on that, it just asks you to paste
+  by hand instead).
+- **Back up my notes** hands you a `.json` file through iOS's share sheet,
+  where **AirDrop to another iPhone is instant** — faster than any login
+  would be, and nothing leaves Apple's own transport.
+- **Restore from a backup** takes either of the above back in, merges rather
+  than duplicates, and never partially applies a file that doesn't parse.
+
+None of this is sync in the "just works in the background" sense — that
+needs a server, which is the whole thing not being built here. It is two
+taps whenever you actually want the same notes somewhere else, riding
+entirely on infrastructure you already have.
 
 A password was typed into this project's chat history while asking for a
 login. It was not stored anywhere in the app or the repository — there is no
@@ -250,7 +265,7 @@ MySchedule.xcodeproj/
 
 test/
   run.mjs                 65 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             98 checks driving the real app in a real browser
+  browser.mjs             103 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```

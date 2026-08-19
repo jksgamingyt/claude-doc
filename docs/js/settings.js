@@ -236,6 +236,20 @@ export function settingsScreen(app) {
     onInput: (days) => { state.settings.archiveRetentionDays = days; },
     onCommit: (days) => set('archiveRetentionDays', days),
   })));
+  data.appendChild(h('div.summary', { style: { margin: '0 14px 4px' } },
+    icon('infinity', 16),
+    h('div',
+      h('strong', 'Moving between devices'),
+      h('p.small.muted', { style: { marginTop: '3px' },
+        text: 'No server means no automatic sync. But your phone already has one for free: paste your notes into Notes, Reminders, or a message to yourself — iCloud carries it to your other devices — then paste it back in here.' }))));
+  data.appendChild(h('div.pad',
+    h('button.btn.wide', {
+      type: 'button',
+      onclick: async () => {
+        const ok = await copyBackupText(store);
+        toast(ok ? 'Copied — paste it into Notes or similar' : "Couldn't copy — try Back up my notes instead");
+      },
+    }, icon('share', 15), 'Copy for iCloud')));
   data.appendChild(h('div.pad',
     h('button.btn.soft.wide', {
       type: 'button',
@@ -366,6 +380,23 @@ export function openArchive(app) {
 // Restore from backup
 // ---------------------------------------------------------------------------
 
+/**
+ * Puts the backup text straight on the clipboard rather than routing through
+ * a file and the share sheet. The point is that anywhere you can paste text —
+ * a Note, a Reminder, a message to yourself — is somewhere iCloud (or
+ * whatever the destination app syncs through) will carry it to your other
+ * devices for free. Falls back to false rather than throwing; Safari can
+ * decline a programmatic clipboard write outside certain contexts.
+ */
+async function copyBackupText(store) {
+  try {
+    await navigator.clipboard.writeText(store.exportJSON());
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 function openImport(app) {
   openSheet((sheet) => {
     const area = h('textarea.textarea', {
@@ -382,6 +413,21 @@ function openImport(app) {
       },
     });
 
+    const pasteButton = h('button.btn.soft', {
+      type: 'button',
+      style: { marginBottom: '12px' },
+      onclick: async () => {
+        // Safari treats a programmatic clipboard read more cautiously than a
+        // write, and can decline it even from a real tap. If it does, the
+        // textarea below still takes a manual paste — nothing is lost.
+        try {
+          const text = await navigator.clipboard.readText();
+          if (text) { area.value = text; toast('Pasted from clipboard'); return; }
+        } catch (error) { /* fall through */ }
+        toast('Paste into the box below instead');
+      },
+    }, icon('download', 14), 'Paste from clipboard');
+
     mount(sheet.head,
       h('button', { type: 'button', onclick: sheet.close }, 'Cancel'),
       h('div.mid', h('strong', 'Restore a backup')),
@@ -389,7 +435,8 @@ function openImport(app) {
 
     mount(sheet.body,
       h('p.small.muted', { style: { marginBottom: '12px' },
-        text: 'Choose a backup file, or paste its contents. Merging keeps what you already have and adds anything missing.' }),
+        text: 'Paste from Notes or wherever you copied it, choose a backup file, or paste its contents directly. Merging keeps what you already have and adds anything missing.' }),
+      pasteButton,
       file,
       h('div', { style: { height: '12px' } }),
       area);

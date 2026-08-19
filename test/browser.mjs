@@ -55,6 +55,11 @@ const context = await browser.newContext({
   hasTouch: true,
   locale: 'en-US',
   timezoneId: 'America/New_York',
+  // Real iOS Safari prompts for clipboard read/write; here we grant it up
+  // front so the test can check what the app does when it succeeds. What
+  // happens when Safari declines is exercised separately, by stubbing the
+  // API to reject.
+  permissions: ['clipboard-read', 'clipboard-write'],
 });
 
 const problems = [];
@@ -730,6 +735,63 @@ await page.waitForTimeout(300);
 await page.getByRole('tab', { name: /Settings/ }).click();
 await page.waitForTimeout(300);
 check('App Lock reads back off after a reset', await page.getByText('App Lock is off').count() > 0);
+
+// --- the iCloud copy/paste bridge (no server, piggybacks on the OS clipboard)
+await page.getByRole('tab', { name: /Settings/ }).click();
+await page.waitForTimeout(300);
+check('the settings screen explains the no-server approach',
+  await page.getByText('Moving between devices').count() > 0);
+
+await page.getByText('Copy for iCloud').click();
+await page.waitForTimeout(300);
+const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+let clipboardData;
+try { clipboardData = JSON.parse(clipboardText); } catch (error) { clipboardData = null; }
+check('copying puts real backup JSON on the clipboard',
+  clipboardData && Array.isArray(clipboardData.temporary) && Array.isArray(clipboardData.daily),
+  clipboardText.slice(0, 80));
+
+// Wipe everything, then prove the clipboard alone can bring it back —
+// this is the actual "move to another device" path, exercised for real.
+const beforeWipe = await page.evaluate(() => ({
+  temporary: window.myschedule.store.state.temporary.length,
+  permanent: window.myschedule.store.state.permanent.length,
+  daily: window.myschedule.store.state.daily.length,
+}));
+await page.evaluate(() => window.myschedule.store.eraseEverything());
+await page.waitForTimeout(200);
+
+await page.getByText('Restore from a backup').click();
+await page.waitForTimeout(300);
+await page.getByText('Paste from clipboard').click();
+await page.waitForTimeout(300);
+check('the restore sheet pulls the copied text straight from the clipboard',
+  (await page.locator('.sheet-body textarea').inputValue()).length > 20);
+
+await page.getByText('Replace all').click();
+await page.waitForTimeout(400);
+const afterRestore = await page.evaluate(() => ({
+  temporary: window.myschedule.store.state.temporary.length,
+  permanent: window.myschedule.store.state.permanent.length,
+  daily: window.myschedule.store.state.daily.length,
+}));
+check('copy then paste round-trips every note back exactly',
+  JSON.stringify(afterRestore) === JSON.stringify(beforeWipe),
+  `${JSON.stringify(beforeWipe)} -> ${JSON.stringify(afterRestore)}`);
+
+// When Safari declines the read (its actual default posture in many
+// contexts), the app must fall back to the manual textarea, not break.
+await page.getByText('Restore from a backup').click();
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  navigator.clipboard.readText = () => Promise.reject(new Error('NotAllowedError'));
+});
+await page.getByText('Paste from clipboard').click();
+await page.waitForTimeout(250);
+check('a declined clipboard read falls back gracefully, no crash',
+  problems.length === 0 && await page.locator('.sheet').count() === 1);
+await page.getByText('Cancel').first().click();
+await page.waitForTimeout(200);
 
 // --- dark mode
 await page.emulateMedia({ colorScheme: 'dark' });
