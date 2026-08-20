@@ -30,52 +30,172 @@ import {
 // file to the generic OS share sheet instead, which is the ambiguous path
 // that was failing.
 //
-// The link content is a data: URI, not a blob: URL. A blob: URL is a handle
-// into the creating document's own registry, and navigating that same
-// document to its own blob: URL races against that document's own
-// navigation teardown — reproduced directly in testing as a hard failure
-// (chrome-error://chromewebdata/), both same-tab and via target="_blank"
-// opening a second tab. A data: URI carries its content inline with no
-// registry and no lifecycle to race, works same-tab, and — confirmed here —
-// degrades to a plain download rather than an error page in a browser with
-// no special handling for the type.
-function icsDataUrl(text) {
-  return `data:text/calendar;charset=utf-8,${encodeURIComponent(text)}`;
+// What the link points at went through three wrong answers before this one,
+// so the reasoning is worth keeping:
+//
+//   blob: URL, new tab      — blob: URLs are handles into the creating
+//                             document's own registry and do not resolve in
+//                             a fresh browsing context.
+//   blob: URL, same tab     — races the document's own navigation teardown.
+//   data:text/calendar URI  — the one that shipped, and the one that caused
+//                             the "it says sent but my calendar is empty"
+//                             report. WebKit *blocks top-level navigation to
+//                             data: URIs outright* as an anti-phishing
+//                             measure, so on iOS the tap silently did
+//                             nothing. Chromium turns the same navigation
+//                             into a download instead of blocking it, which
+//                             is exactly why the browser test passed while
+//                             the real phone did not.
+//
+// What actually works has to be a *real navigation to a real URL* whose
+// response carries a text/calendar content type. There is no server here to
+// serve one — so the service worker is the server. The page writes the
+// generated .ics into a cache; sw.js answers a normal same-origin URL out of
+// that cache with real headers. Safari cannot tell it apart from a hosted
+// file, which is the entire point.
+const FEED_CACHE = 'myschedule-calendar-feed';
+const FEED_PATH = 'calendar/MySchedule.ics';
+
+/** The URL sw.js answers. Absolute, so it matches what cache.put() stored. */
+function feedUrl() {
+  return new URL(FEED_PATH, location.href).href;
+}
+
+/** Is there a service worker actually in control of this page right now? */
+function serviceWorkerReady() {
+  return 'serviceWorker' in navigator
+    && !!navigator.serviceWorker.controller
+    && 'caches' in window;
+}
+
+async function writeCalendarFeed(text) {
+  try {
+    const cache = await caches.open(FEED_CACHE);
+    await cache.put(feedUrl(), new Response(text, {
+      headers: {
+        'Content-Type': 'text/calendar; charset=utf-8',
+        'Content-Disposition': 'inline; filename="MySchedule.ics"',
+        'Cache-Control': 'no-store',
+      },
+    }));
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 /**
- * A real, directly-tappable link that opens Safari's calendar-import screen
- * itself — the primary mechanism now. Returns null when there is nothing to
- * send, so callers can each decide what "nothing pending" looks like.
- * Shared by the Settings card, the post-add banner, and the How it works
- * sheet so the three behave identically instead of drifting apart.
+ * A real, directly-tappable link to a real text/calendar URL. Returns null
+ * when there is nothing to send, so callers can each decide what "nothing
+ * pending" looks like. Shared by the Settings card, the post-add banner, and
+ * the How it works sheet so the three behave identically.
+ *
+ * Deliberately does NOT mark anything as exported. Nothing the browser hands
+ * back tells us the events reached Calendar, and claiming they did — which
+ * an earlier version did, on tap — is how the app ended up insisting
+ * everything was up to date while the calendar sat empty. Confirmation is
+ * the user's to give; see calendarCard().
  */
 export function calendarLink(app, { onlyNew = true, label, cls = '' } = {}) {
-  const store = app.store;
-  const batch = exportable(store.state, onlyNew);
+  const batch = exportable(app.store.state, onlyNew);
   const total = batch.temporary.length + batch.permanent.length;
   if (!total) return null;
 
   const { text } = buildICS({ ...batch, name: 'MySchedule' });
-  return h(`a.btn${cls}`, {
-    href: icsDataUrl(text),
-    onclick: () => store.markExported(batch.temporary, batch.permanent),
-  }, icon('cal2', 15), label || `Add ${total} to Calendar`);
+  const link = h(`a.btn${cls}`, { href: feedUrl() },
+    icon('cal2', 15), label || `Add ${total} to Calendar`);
+
+  let ready = false;
+  const prepared = prepareCalendarHref(text).then((plan) => {
+    link.href = plan.href;
+    if (plan.download) link.setAttribute('download', 'MySchedule.ics');
+    else link.removeAttribute('download');
+    ready = true;
+    return plan;
+  });
+
+  // Preparing the file is asynchronous, and a tap that lands first must not
+  // navigate to a URL that is not answerable yet — a 404 here would look
+  // exactly like the silent failure being fixed. Hold the tap, finish
+  // preparing, then re-dispatch it so the browser performs the real default
+  // action (navigate, or download, depending on which plan won).
+  link.addEventListener('click', (event) => {
+    if (ready) return;
+    event.preventDefault();
+    prepared.then(() => link.click());
+  });
+
+  return link;
+}
+
+/**
+ * Decide what the link should actually point at, and prove it before
+ * committing to it.
+ *
+ * The service-worker route is preferred because it is the only one that
+ * produces a real text/calendar navigation. But "a worker is in control" is
+ * not the same claim as "this worker serves the calendar route" — right
+ * after an update the previous version is still controlling the page, and it
+ * has no such route, so the link would hand Safari a 404. Rather than assume,
+ * fetch it once and look at what comes back. Anything short of a genuine
+ * text/calendar response falls back to saving the file, which is slower for
+ * the user but real: open it from Files and iOS runs the same import.
+ */
+async function prepareCalendarHref(text) {
+  const asFile = () => ({
+    href: URL.createObjectURL(new Blob([text], { type: 'text/calendar' })),
+    download: true,
+  });
+
+  if (!serviceWorkerReady()) return asFile();
+  if (!await writeCalendarFeed(text)) return asFile();
+  if (!await feedRouteWorks()) return asFile();
+  return { href: feedUrl(), download: false };
+}
+
+// Whether the controlling worker serves the calendar route cannot change
+// while the page is open, so it is asked once and remembered.
+let feedRoutePromise = null;
+
+function feedRouteWorks() {
+  if (!feedRoutePromise) feedRoutePromise = askWorker({ type: 'capabilities' })
+    .then((reply) => !!(reply && reply.calendarFeed));
+  return feedRoutePromise;
+}
+
+/**
+ * Put a question to the controlling service worker. Resolves to null if it
+ * does not answer in time — which is exactly what a worker from a previous
+ * deploy does, and is the case worth catching.
+ */
+function askWorker(message, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const worker = navigator.serviceWorker.controller;
+    if (!worker) { resolve(null); return; }
+    const channel = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    channel.port1.onmessage = (event) => { clearTimeout(timer); resolve(event.data); };
+    try {
+      worker.postMessage(message, [channel.port2]);
+    } catch (error) {
+      clearTimeout(timer);
+      resolve(null);
+    }
+  });
 }
 
 /**
  * The fallback path, kept for AirDrop / Save to Files / Messages: hands the
  * .ics file to the OS share sheet via offerFile/navigator.share on purpose.
- * This is the mechanism the direct link above exists to avoid as the
- * primary route — kept only as a second option for whoever wants it.
+ * Like calendarLink() it does not mark anything as sent — "the share sheet
+ * closed" is not the same fact as "the events are in Calendar".
  */
 export async function shareCalendarFile(app, { onlyNew = true, silent = false } = {}) {
-  const store = app.store;
-  const batch = exportable(store.state, onlyNew);
+  const batch = exportable(app.store.state, onlyNew);
   const total = batch.temporary.length + batch.permanent.length;
 
   if (!total) {
-    if (!silent) toast(onlyNew ? 'Everything is already in your calendar' : 'Nothing to send yet');
+    if (!silent) toast(onlyNew ? 'Nothing new to send' : 'Nothing to send yet');
     return 0;
   }
 
@@ -89,24 +209,41 @@ export async function shareCalendarFile(app, { onlyNew = true, silent = false } 
   );
 
   if (result === 'cancelled') return 0;
-
-  store.markExported(batch.temporary, batch.permanent);
-  toast(result === 'shared'
-    ? `${total} sent — choose Calendar to add them`
-    : `${total} downloaded — open the file to add them`);
+  toast('Saved — open the file to add it to Calendar');
   return total;
 }
 
 export function calendarCard(app) {
-  const batch = exportable(app.store.state, true);
+  const store = app.store;
+  const batch = exportable(store.state, true);
   const pending = batch.temporary.length + batch.permanent.length;
+
+  // Asking is the only honest option. Nothing the browser hands back after
+  // the tap says whether Calendar accepted the events, so the app stops
+  // guessing and puts the question to the one party who can see the answer.
+  const confirmRow = h('div', { style: { display: 'none', marginTop: '10px' } },
+    h('p.tiny', { style: { textAlign: 'center', marginBottom: '8px', fontWeight: 600 },
+      text: 'Did they show up in your Calendar app?' }),
+    h('div', { style: { display: 'flex', gap: '8px' } },
+      h('button.btn.soft', { type: 'button', style: { flex: '1' },
+        onclick: () => {
+          store.markExported(batch.temporary, batch.permanent);
+          app.render();
+          toast('Marked as sent');
+        } }, 'Yes, they are in'),
+      h('button.btn.soft', { type: 'button', style: { flex: '1' },
+        onclick: () => {
+          confirmRow.style.display = 'none';
+          shareCalendarFile(app, { onlyNew: true });
+        } }, 'No — try the file')));
+
   const primary = calendarLink(app, {
     onlyNew: true, cls: '.wide',
     label: pending ? `Add ${pending} to Calendar` : 'Everything is up to date',
   });
-  const resend = pending === 0
-    ? calendarLink(app, { onlyNew: false, cls: '.soft.wide', label: 'Send everything again' })
-    : null;
+  if (primary) {
+    primary.addEventListener('click', () => { confirmRow.style.display = 'block'; });
+  }
 
   return h('div.card.raised',
     h('div', { style: { display: 'flex', gap: '12px', alignItems: 'flex-start', marginBottom: '12px' } },
@@ -120,11 +257,23 @@ export function calendarCard(app) {
       text: pending
         ? 'Tap to open the calendar-import screen directly.'
         : 'New and edited notes will appear here to send.' }),
-    resend,
+    confirmRow,
+    // Always available, never hidden behind "everything is up to date". If
+    // the app's record of what it sent is wrong — and it has been wrong —
+    // this is the way back, and it should not take a support conversation
+    // to find it.
     h('button.btn.soft.wide', {
       type: 'button', style: { marginTop: '10px' },
-      onclick: () => shareCalendarFile(app, { onlyNew: true }),
-    }, "Didn't work? Share as a file instead"),
+      onclick: () => {
+        store.clearExportMarks();
+        app.render();
+        toast('Reset — every note is ready to send again');
+      },
+    }, 'Nothing arrived? Send everything again'),
+    h('button.btn.soft.wide', {
+      type: 'button', style: { marginTop: '8px' },
+      onclick: () => shareCalendarFile(app, { onlyNew: false }),
+    }, 'Save as a file instead'),
   );
 }
 

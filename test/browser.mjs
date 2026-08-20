@@ -385,77 +385,158 @@ check('recurring note exports as an RRULE', icsCheck.hasRRule);
 check('alarms are attached', icsCheck.hasAlarm);
 check('line endings are CRLF', icsCheck.crlfOnly);
 
-// --- the actual mechanism: a real, directly-tappable link to a text/calendar
-// blob, not a trip through the OS share sheet (which never lists "Calendar"
-// as a target — that was the reported bug, and the wrong door to knock on).
-const linkProbe = await page.evaluate(() => {
+// --- the actual mechanism.
+//
+// The reported bug: the app said "everything is up to date" while the iPhone
+// Calendar stayed empty. Two separate faults behind it.
+//
+// 1. The link pointed at a data: URI. WebKit blocks top-level navigation to
+//    data: URIs outright, so on iOS the tap did nothing at all. Chromium
+//    turns the same navigation into a download rather than blocking it,
+//    which is precisely why the previous version of this test passed while
+//    the real phone did not — so this test no longer leans on what a click
+//    does here, and checks the served response instead.
+// 2. The tap marked the notes exported regardless. That is the part that
+//    turned a broken hand-off into a silent one.
+//
+// The fix makes sw.js serve the .ics from a normal same-origin URL with real
+// text/calendar headers, which is the thing Safari actually acts on.
+
+const feedProbe = await page.evaluate(async () => {
   const card = [...document.querySelectorAll('.card.raised')]
     .find((el) => el.textContent.includes('Real reminders, via Calendar'));
   const anchor = card ? card.querySelector('a.btn') : null;
   if (!anchor) return { found: false };
-  return {
+  await new Promise((r) => setTimeout(r, 400));
+  const base = {
     found: true,
     tag: anchor.tagName,
-    href: anchor.getAttribute('href'),
+    href: anchor.href,
+    scheme: new URL(anchor.href).protocol,
     target: anchor.getAttribute('target'),
     hasDownloadAttr: anchor.hasAttribute('download'),
   };
+  // A data:/blob: href cannot even be fetched from here — the app's own
+  // connect-src 'self' CSP refuses it. Report that as a failed probe rather
+  // than throwing, so the checks below name the fault instead of the suite
+  // dying with an opaque "Failed to fetch".
+  try {
+    const res = await fetch(anchor.href);
+    const body = await res.text();
+    return {
+      ...base,
+      status: res.status,
+      contentType: res.headers.get('content-type'),
+      isCalendar: body.startsWith('BEGIN:VCALENDAR'),
+      hasAlarm: body.includes('BEGIN:VALARM'),
+    };
+  } catch (error) {
+    return { ...base, status: 0, contentType: null, isCalendar: false,
+      hasAlarm: false, fetchError: String(error) };
+  }
 });
-check('the primary control is a real <a>, not a button', linkProbe.found && linkProbe.tag === 'A',
-  JSON.stringify(linkProbe));
-check('it points at a text/calendar data: URI', (linkProbe.href || '').startsWith('data:text/calendar'),
-  (linkProbe.href || '').slice(0, 40));
-// target="_blank" was tried and reverted: opening a new browsing context to
-// this URL is what actually broke, reproducibly, in the browser this test
-// runs in — verified directly rather than assumed either way. Same-tab is
-// what stayed on the page successfully; that is the point of this check.
+
+check('the primary control is a real <a>, not a button',
+  feedProbe.found && feedProbe.tag === 'A', JSON.stringify(feedProbe.tag));
+check('it points at an http(s) URL, never a data: or blob: one — WebKit '
+  + 'blocks top-level data: navigation, which is what broke on the phone',
+  feedProbe.scheme === 'http:' || feedProbe.scheme === 'https:', feedProbe.scheme);
+check('the service worker answers that URL', feedProbe.status === 200, String(feedProbe.status));
+check('and serves it as text/calendar — the header iOS acts on',
+  (feedProbe.contentType || '').startsWith('text/calendar'), feedProbe.contentType);
+check('the body is a real calendar file', feedProbe.isCalendar && feedProbe.hasAlarm);
 check('it stays in the current tab rather than opening a new one',
-  linkProbe.target == null || linkProbe.target === '');
-check('critically, it carries no download attribute — that forces a save '
-  + 'instead of letting Safari open its own calendar-import screen',
-  linkProbe.hasDownloadAttr === false);
+  feedProbe.target == null || feedProbe.target === '');
+check('it carries no download attribute — that would force a save instead '
+  + 'of letting Safari open its own calendar-import screen',
+  feedProbe.hasDownloadAttr === false);
 
-// Content correctness is already covered by icsCheck above (buildICS()
-// output) — the link's data: URI is built from that same text, so there is
-// nothing further to re-prove about its content. What is worth proving here
-// is that a real tap does not disturb the app: this exact combination (a
-// document navigating to its own blob: URL, or opening one in a new tab)
-// was reproduced failing outright before landing on a data: URI, so the
-// regression that matters is "the app is still here after a real click."
-const urlBeforeClick = page.url();
-// Chromium can't render text/calendar inline, so the same-tab navigation this
-// click starts resolves as a download rather than a page load. Playwright's
-// default click() waits for a navigation to finish loading before returning,
-// which never happens here — noWaitAfter skips that wait; the download
-// itself is still awaited below so it isn't left dangling mid-suite.
-const downloadWait = page.waitForEvent('download', { timeout: 5000 }).catch(() => null);
-await page.locator('.card.raised a.btn').first().click({ noWaitAfter: true });
-await downloadWait;
-await page.waitForTimeout(500);
-// Chromium leaves the frame internally marked as "still navigating" after an
-// aborted-in-favor-of-download load, which then hangs every later Playwright
-// action that auto-waits on navigation — even though nothing actually moved
-// and the app is untouched. A no-op history update is enough to make Chromium
-// drop that stale flag; it does not touch the app itself (no app code runs).
-await page.evaluate(() => history.replaceState(null, '', location.href));
-check('the app is still on the same page after tapping the link',
-  page.url() === urlBeforeClick
-  && await page.getByText('Real reminders, via Calendar').count() > 0);
-check('and no second tab was opened', context.pages().length === 1);
+// The honesty fix. Tapping proves nothing about whether Calendar accepted
+// the events, so the app must not record that it did.
+const pendingBeforeTap = await page.evaluate(async () => {
+  const ics = await import('./js/ics.js');
+  const b = ics.exportable(window.myschedule.store.state, true);
+  return b.temporary.length + b.permanent.length;
+});
+await page.evaluate(async () => {
+  const card = [...document.querySelectorAll('.card.raised')]
+    .find((el) => el.textContent.includes('Real reminders, via Calendar'));
+  const anchor = card.querySelector('a.btn');
+  // Swallow the navigation for the whole exchange: what is under test here is
+  // the bookkeeping, not Chromium's download handling. Not { once: true } —
+  // the link re-dispatches its own click once the file is ready, so a
+  // one-shot guard would let that second click navigate for real.
+  const swallow = (e) => e.preventDefault();
+  anchor.addEventListener('click', swallow, { capture: true });
+  anchor.click();
+  await new Promise((r) => setTimeout(r, 600));
+  anchor.removeEventListener('click', swallow, { capture: true });
+});
+await page.waitForTimeout(300);
+const pendingAfterTap = await page.evaluate(async () => {
+  const ics = await import('./js/ics.js');
+  const b = ics.exportable(window.myschedule.store.state, true);
+  return b.temporary.length + b.permanent.length;
+});
+check('tapping does NOT mark the notes as sent — the app cannot see whether '
+  + 'Calendar took them, and claiming it can is the bug being fixed',
+  pendingAfterTap === pendingBeforeTap && pendingBeforeTap > 0,
+  `${pendingBeforeTap} -> ${pendingAfterTap}`);
+const askVisible = await page.getByText('Did they show up in your Calendar app?')
+  .isVisible().catch(() => false);
+check('instead it asks whether they arrived', askVisible);
 
-check('tapping the link marks those notes as sent',
-  await page.getByText('Everything is up to date').count() > 0
-  || await page.getByText(/Add \d+ to Calendar/).count() === 0);
+// Confirming is what records it, because only the user can see the answer.
+// Guarded so a regression reports as a failed check rather than killing the
+// suite here and hiding everything downstream.
+if (askVisible) {
+  await page.getByText('Yes, they are in').first().click().catch(() => {});
+  await page.waitForTimeout(300);
+}
+const pendingAfterConfirm = await page.evaluate(async () => {
+  const ics = await import('./js/ics.js');
+  const b = ics.exportable(window.myschedule.store.state, true);
+  return b.temporary.length + b.permanent.length;
+});
+check('confirming marks them sent', pendingAfterConfirm === 0, String(pendingAfterConfirm));
 
-// The fallback stays a real button (it goes through offerFile/navigator.share
-// deliberately, for AirDrop/Save-to-Files, not the direct-open mechanism).
-check('a file-share fallback is offered alongside the link',
-  await page.getByText("Didn't work? Share as a file instead").count() > 0);
-check('the fallback is a button, not a link', await page.evaluate(() => {
-  const btn = [...document.querySelectorAll('button')]
-    .find((el) => el.textContent.includes('Share as a file instead'));
-  return !!btn && btn.tagName === 'BUTTON';
-}));
+// And the way back, for when the app's record is wrong — as it has been.
+check('a reset is offered even while everything reads as up to date',
+  await page.getByText('Nothing arrived? Send everything again').count() > 0);
+await page.getByText('Nothing arrived? Send everything again').first().click().catch(() => {});
+await page.waitForTimeout(300);
+const pendingAfterReset = await page.evaluate(async () => {
+  const ics = await import('./js/ics.js');
+  const b = ics.exportable(window.myschedule.store.state, true);
+  return b.temporary.length + b.permanent.length;
+});
+check('resetting makes every note sendable again',
+  pendingAfterReset === pendingBeforeTap, `${pendingAfterReset}`);
+
+check('a file fallback is offered too',
+  await page.getByText('Save as a file instead').count() > 0);
+
+// The property that matters most, given how this broke: when the calendar
+// route is unavailable for any reason, the link must degrade to something
+// real — never to a href that quietly does nothing when tapped.
+const degraded = await page.evaluate(async () => {
+  const settings = await import('./js/settings.js');
+  const realOpen = window.caches.open;
+  window.caches.open = () => Promise.reject(new Error('no cache for you'));
+  try {
+    const link = settings.calendarLink(window.myschedule, { onlyNew: false });
+    await new Promise((r) => setTimeout(r, 600));
+    return {
+      scheme: new URL(link.href).protocol,
+      download: link.getAttribute('download'),
+    };
+  } finally {
+    window.caches.open = realOpen;
+  }
+});
+check('with the calendar route unavailable it falls back to saving a real file',
+  degraded.scheme === 'blob:' && degraded.download === 'MySchedule.ics',
+  JSON.stringify(degraded));
 
 await tapText('How MySchedule works');
 check('explainer opens', await page.getByText('Two kinds of note, one schedule').count() > 0);

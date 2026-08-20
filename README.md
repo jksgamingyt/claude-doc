@@ -68,19 +68,42 @@ The app turns your notes into calendar events carrying alarms and hands them to
 the iPhone's own Calendar. Those alerts are **native**: they fire on time,
 offline, whether or not MySchedule is running, forever.
 
-- Settings → **Add [N] to Calendar** taps straight into Safari's own
-  calendar-import screen — no share sheet involved. (iOS never lists
-  "Calendar" as an app in the share sheet, which is why that route looked
-  broken; a directly-tapped link to a `text/calendar` file is what actually
-  triggers Safari's built-in import, and that's what the button does now. A
-  "Didn't work? Share as a file instead" fallback still routes through the
-  share sheet for AirDrop or Save to Files, for anyone who wants that
-  instead.)
+- Settings → **Add [N] to Calendar** opens Safari's own calendar-import
+  screen. No share sheet is involved — iOS never lists Calendar as an app
+  there, because Calendar has no share extension. It imports files that are
+  *opened*, not files that are shared.
 - Recurring notes go across as a *single repeating event*, so one send covers
   every future occurrence — a weekday note is one event, not 260.
 - Each reminder you chose becomes its own alarm on the event. Choose "1 day
   before" and "1 hour before" and you get both.
 - Only new and edited notes are offered, so you never import a duplicate.
+- Afterwards the app **asks whether they actually arrived**, and only then
+  records them as sent. It cannot see your Calendar, so it does not pretend
+  to. **Nothing arrived? Send everything again** is always available.
+
+#### How the file gets served without a server
+
+Safari shows its import screen when it *navigates to a resource served as
+`text/calendar`*. Getting there without a backend took a few wrong turns,
+kept here because each one failed in a way worth remembering:
+
+| Approach | Result |
+| --- | --- |
+| `navigator.share({ files })` | Share sheet has no Calendar target. Wrong door. |
+| `blob:` URL, new tab | Blob URLs don't resolve in a fresh browsing context. |
+| `blob:` URL, same tab | Races the document's own navigation teardown. |
+| `data:text/calendar` URI | **Shipped, and broke.** WebKit blocks top-level `data:` navigation, so the tap silently did nothing — while the app marked the notes as sent anyway. |
+
+The fix makes **the service worker the server**. The page writes the generated
+`.ics` into a cache; `sw.js` answers a normal same-origin URL
+(`calendar/MySchedule.ics`) out of that cache with real `text/calendar`
+headers. Safari cannot tell it apart from a hosted file.
+
+Before pointing a link there, the page asks the controlling worker whether it
+serves that route — a worker from a *previous* deploy does not, and would hand
+Safari a 404. If the answer is anything but yes, the link degrades to saving a
+real file you can open from Files. The one thing it will never do again is
+quietly nothing.
 
 The app nudges you to do this each time you add a note. It's one tap.
 
@@ -271,7 +294,7 @@ MySchedule.xcodeproj/
 
 test/
   run.mjs                 75 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             112 checks driving the real app in a real browser
+  browser.mjs             117 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -306,11 +329,14 @@ confirm the answer survives the round trip, leaving a daily reminder and
 re-opening the app to be greeted by it exactly once, checking persistence across
 a reload, dark mode, that a focused text field is never removed from the
 document when the screen around it re-renders (iOS closes the keyboard the
-instant that happens, and does not reopen it), that the calendar bridge is a
-real same-tab link to a `data:text/calendar` URI rather than a share-sheet
-trip or a `blob:` URL (both were tried and reproducibly failed — see the
-comment above `icsDataUrl` in `settings.js`), and that it still works with the
-network switched off. It fails on any console error.
+instant that happens, and does not reopen it), that the calendar bridge really is
+served by the service worker as `text/calendar` over an ordinary URL (the
+response headers are checked, not just the link), that tapping it does *not*
+record the notes as sent — the app cannot see your Calendar, and claiming
+otherwise was a real shipped bug — and that with the route unavailable the
+link degrades to a genuine file download rather than to nothing. It also
+checks that it still works with the network switched off, and fails on any
+console error.
 
 ---
 
