@@ -20,8 +20,56 @@ import {
 // ---------------------------------------------------------------------------
 // The calendar bridge
 // ---------------------------------------------------------------------------
+//
+// iOS never lists "Calendar" as an icon in the row of apps inside the share
+// sheet — that was the wrong door to knock on, and the reason it looked
+// missing. Calendar import happens when a .ics file is *opened*: Safari
+// recognises the text/calendar type and shows its own "Add All" screen
+// directly, no share sheet involved. A real <a href> the user actually taps
+// is what reliably triggers that; routing through navigator.share hands the
+// file to the generic OS share sheet instead, which is the ambiguous path
+// that was failing.
+//
+// The link content is a data: URI, not a blob: URL. A blob: URL is a handle
+// into the creating document's own registry, and navigating that same
+// document to its own blob: URL races against that document's own
+// navigation teardown — reproduced directly in testing as a hard failure
+// (chrome-error://chromewebdata/), both same-tab and via target="_blank"
+// opening a second tab. A data: URI carries its content inline with no
+// registry and no lifecycle to race, works same-tab, and — confirmed here —
+// degrades to a plain download rather than an error page in a browser with
+// no special handling for the type.
+function icsDataUrl(text) {
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(text)}`;
+}
 
-export async function sendToCalendar(app, { onlyNew = true, silent = false } = {}) {
+/**
+ * A real, directly-tappable link that opens Safari's calendar-import screen
+ * itself — the primary mechanism now. Returns null when there is nothing to
+ * send, so callers can each decide what "nothing pending" looks like.
+ * Shared by the Settings card, the post-add banner, and the How it works
+ * sheet so the three behave identically instead of drifting apart.
+ */
+export function calendarLink(app, { onlyNew = true, label, cls = '' } = {}) {
+  const store = app.store;
+  const batch = exportable(store.state, onlyNew);
+  const total = batch.temporary.length + batch.permanent.length;
+  if (!total) return null;
+
+  const { text } = buildICS({ ...batch, name: 'MySchedule' });
+  return h(`a.btn${cls}`, {
+    href: icsDataUrl(text),
+    onclick: () => store.markExported(batch.temporary, batch.permanent),
+  }, icon('cal2', 15), label || `Add ${total} to Calendar`);
+}
+
+/**
+ * The fallback path, kept for AirDrop / Save to Files / Messages: hands the
+ * .ics file to the OS share sheet via offerFile/navigator.share on purpose.
+ * This is the mechanism the direct link above exists to avoid as the
+ * primary route — kept only as a second option for whoever wants it.
+ */
+export async function shareCalendarFile(app, { onlyNew = true, silent = false } = {}) {
   const store = app.store;
   const batch = exportable(store.state, onlyNew);
   const total = batch.temporary.length + batch.permanent.length;
@@ -52,6 +100,13 @@ export async function sendToCalendar(app, { onlyNew = true, silent = false } = {
 export function calendarCard(app) {
   const batch = exportable(app.store.state, true);
   const pending = batch.temporary.length + batch.permanent.length;
+  const primary = calendarLink(app, {
+    onlyNew: true, cls: '.wide',
+    label: pending ? `Add ${pending} to Calendar` : 'Everything is up to date',
+  });
+  const resend = pending === 0
+    ? calendarLink(app, { onlyNew: false, cls: '.soft.wide', label: 'Send everything again' })
+    : null;
 
   return h('div.card.raised',
     h('div', { style: { display: 'flex', gap: '12px', alignItems: 'flex-start', marginBottom: '12px' } },
@@ -60,17 +115,16 @@ export function calendarCard(app) {
         h('strong', { style: { fontSize: '16px' }, text: 'Real reminders, via Calendar' }),
         h('p.small.muted', { style: { marginTop: '4px' },
           text: 'iOS gives no web app the ability to alert you while it is closed. Sending your notes to the iPhone Calendar does: the alarms fire on time, offline, whether or not this app is running.' }))),
-    h('button.btn.wide', { type: 'button', onclick: () => sendToCalendar(app, { onlyNew: true }) },
-      icon('share', 15),
-      pending ? `Send ${pending} to Calendar` : 'Everything is up to date'),
+    primary || h('button.btn.wide', { type: 'button', disabled: true }, 'Everything is up to date'),
     h('p.tiny.faint', { style: { marginTop: '9px', textAlign: 'center' },
       text: pending
-        ? 'Tap, then choose Calendar in the share sheet and Add All.'
+        ? 'Tap to open the calendar-import screen directly.'
         : 'New and edited notes will appear here to send.' }),
-    pending === 0 && h('button.btn.soft.wide', {
+    resend,
+    h('button.btn.soft.wide', {
       type: 'button', style: { marginTop: '10px' },
-      onclick: () => sendToCalendar(app, { onlyNew: false }),
-    }, 'Send everything again'),
+      onclick: () => shareCalendarFile(app, { onlyNew: true }),
+    }, "Didn't work? Share as a file instead"),
   );
 }
 
@@ -501,8 +555,12 @@ export function openHowItWorks(app) {
       h('p.tiny.faint', { style: { textAlign: 'center', marginTop: '10px' }, text: 'Built for one person, on one phone.' }),
     );
 
-    mount(sheet.foot,
-      h('button.btn.wide', { type: 'button', onclick: () => { sheet.close(); sendToCalendar(app, { onlyNew: true }); } },
-        icon('share', 15), 'Send my notes to Calendar'));
+    const link = calendarLink(app, { onlyNew: true, cls: '.wide', label: 'Send my notes to Calendar' });
+    if (link) {
+      link.addEventListener('click', () => sheet.close());
+      mount(sheet.foot, link);
+    } else {
+      mount(sheet.foot, h('button.btn.wide', { type: 'button', disabled: true }, 'Nothing new to send'));
+    }
   });
 }

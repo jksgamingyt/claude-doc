@@ -385,6 +385,78 @@ check('recurring note exports as an RRULE', icsCheck.hasRRule);
 check('alarms are attached', icsCheck.hasAlarm);
 check('line endings are CRLF', icsCheck.crlfOnly);
 
+// --- the actual mechanism: a real, directly-tappable link to a text/calendar
+// blob, not a trip through the OS share sheet (which never lists "Calendar"
+// as a target — that was the reported bug, and the wrong door to knock on).
+const linkProbe = await page.evaluate(() => {
+  const card = [...document.querySelectorAll('.card.raised')]
+    .find((el) => el.textContent.includes('Real reminders, via Calendar'));
+  const anchor = card ? card.querySelector('a.btn') : null;
+  if (!anchor) return { found: false };
+  return {
+    found: true,
+    tag: anchor.tagName,
+    href: anchor.getAttribute('href'),
+    target: anchor.getAttribute('target'),
+    hasDownloadAttr: anchor.hasAttribute('download'),
+  };
+});
+check('the primary control is a real <a>, not a button', linkProbe.found && linkProbe.tag === 'A',
+  JSON.stringify(linkProbe));
+check('it points at a text/calendar data: URI', (linkProbe.href || '').startsWith('data:text/calendar'),
+  (linkProbe.href || '').slice(0, 40));
+// target="_blank" was tried and reverted: opening a new browsing context to
+// this URL is what actually broke, reproducibly, in the browser this test
+// runs in — verified directly rather than assumed either way. Same-tab is
+// what stayed on the page successfully; that is the point of this check.
+check('it stays in the current tab rather than opening a new one',
+  linkProbe.target == null || linkProbe.target === '');
+check('critically, it carries no download attribute — that forces a save '
+  + 'instead of letting Safari open its own calendar-import screen',
+  linkProbe.hasDownloadAttr === false);
+
+// Content correctness is already covered by icsCheck above (buildICS()
+// output) — the link's data: URI is built from that same text, so there is
+// nothing further to re-prove about its content. What is worth proving here
+// is that a real tap does not disturb the app: this exact combination (a
+// document navigating to its own blob: URL, or opening one in a new tab)
+// was reproduced failing outright before landing on a data: URI, so the
+// regression that matters is "the app is still here after a real click."
+const urlBeforeClick = page.url();
+// Chromium can't render text/calendar inline, so the same-tab navigation this
+// click starts resolves as a download rather than a page load. Playwright's
+// default click() waits for a navigation to finish loading before returning,
+// which never happens here — noWaitAfter skips that wait; the download
+// itself is still awaited below so it isn't left dangling mid-suite.
+const downloadWait = page.waitForEvent('download', { timeout: 5000 }).catch(() => null);
+await page.locator('.card.raised a.btn').first().click({ noWaitAfter: true });
+await downloadWait;
+await page.waitForTimeout(500);
+// Chromium leaves the frame internally marked as "still navigating" after an
+// aborted-in-favor-of-download load, which then hangs every later Playwright
+// action that auto-waits on navigation — even though nothing actually moved
+// and the app is untouched. A no-op history update is enough to make Chromium
+// drop that stale flag; it does not touch the app itself (no app code runs).
+await page.evaluate(() => history.replaceState(null, '', location.href));
+check('the app is still on the same page after tapping the link',
+  page.url() === urlBeforeClick
+  && await page.getByText('Real reminders, via Calendar').count() > 0);
+check('and no second tab was opened', context.pages().length === 1);
+
+check('tapping the link marks those notes as sent',
+  await page.getByText('Everything is up to date').count() > 0
+  || await page.getByText(/Add \d+ to Calendar/).count() === 0);
+
+// The fallback stays a real button (it goes through offerFile/navigator.share
+// deliberately, for AirDrop/Save-to-Files, not the direct-open mechanism).
+check('a file-share fallback is offered alongside the link',
+  await page.getByText("Didn't work? Share as a file instead").count() > 0);
+check('the fallback is a button, not a link', await page.evaluate(() => {
+  const btn = [...document.querySelectorAll('button')]
+    .find((el) => el.textContent.includes('Share as a file instead'));
+  return !!btn && btn.tagName === 'BUTTON';
+}));
+
 await tapText('How MySchedule works');
 check('explainer opens', await page.getByText('Two kinds of note, one schedule').count() > 0);
 await shot('how-it-works');

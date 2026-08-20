@@ -353,6 +353,7 @@ ul { margin: 0; padding: 0; list-style: none; }
   border-radius: 999px;
   background: var(--moss);
   color: var(--canvas);
+  text-decoration: none; /* .btn is also used on <a>, which defaults to underlined */
   box-shadow: 0 6px 16px color-mix(in srgb, var(--moss) 30%, transparent);
   transition: transform 0.12s ease, opacity 0.12s ease;
 }

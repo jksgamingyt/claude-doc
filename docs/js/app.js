@@ -9,7 +9,7 @@ import {
   welcomeScreen, scheduleScreen, temporaryScreen, permanentScreen,
   dailyScreen, dailyGreeting,
 } from './screens.js';
-import { settingsScreen, sendToCalendar, openHowItWorks } from './settings.js';
+import { settingsScreen, calendarLink, openHowItWorks } from './settings.js';
 
 const TABS = [
   { key: 'schedule', label: 'Schedule', icon: 'calendar' },
@@ -176,17 +176,20 @@ class App {
   }
 
   offerCalendar() {
+    const link = calendarLink(this, { onlyNew: true, cls: '.soft', label: 'Send' });
+    if (!link) return; // nothing pending right after adding a note is not expected, but guard anyway
+    link.style.padding = '8px 13px';
+    link.style.fontSize = '13px';
+
     const bar = h('div.banner.moss',
       icon('cal2', 16),
       h('div.grow',
         h('strong.small', 'Get a real reminder'),
         h('div.tiny.muted', 'Send it to your iPhone Calendar and the alert fires even when this app is closed.')),
-      h('button.btn.soft', {
-        type: 'button', style: { padding: '8px 13px', fontSize: '13px' },
-        onclick: () => { bar.remove(); sendToCalendar(this, { onlyNew: true }); },
-      }, 'Send'),
+      link,
       h('button.x', { type: 'button', 'aria-label': 'Dismiss', onclick: () => bar.remove() }, icon('x', 13)));
 
+    link.addEventListener('click', () => bar.remove());
     this.bannerHost.appendChild(bar);
     setTimeout(() => bar.remove(), 14000);
   }

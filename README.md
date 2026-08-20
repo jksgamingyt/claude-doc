@@ -68,15 +68,21 @@ The app turns your notes into calendar events carrying alarms and hands them to
 the iPhone's own Calendar. Those alerts are **native**: they fire on time,
 offline, whether or not MySchedule is running, forever.
 
-- Settings → **Send to Calendar**, then pick **Calendar** in the share sheet and
-  **Add All**.
+- Settings → **Add [N] to Calendar** taps straight into Safari's own
+  calendar-import screen — no share sheet involved. (iOS never lists
+  "Calendar" as an app in the share sheet, which is why that route looked
+  broken; a directly-tapped link to a `text/calendar` file is what actually
+  triggers Safari's built-in import, and that's what the button does now. A
+  "Didn't work? Share as a file instead" fallback still routes through the
+  share sheet for AirDrop or Save to Files, for anyone who wants that
+  instead.)
 - Recurring notes go across as a *single repeating event*, so one send covers
   every future occurrence — a weekday note is one event, not 260.
 - Each reminder you chose becomes its own alarm on the event. Choose "1 day
   before" and "1 hour before" and you get both.
 - Only new and edited notes are offered, so you never import a duplicate.
 
-The app nudges you to do this each time you add a note. It takes two taps.
+The app nudges you to do this each time you add a note. It's one tap.
 
 ### Live alerts — while the app is open
 
@@ -264,8 +270,8 @@ MySchedule/               the native SwiftUI version (needs a Mac)
 MySchedule.xcodeproj/
 
 test/
-  run.mjs                 65 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             103 checks driving the real app in a real browser
+  run.mjs                 75 logic tests — recurrence, expiry, sweep, ICS
+  browser.mjs             112 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -300,7 +306,10 @@ confirm the answer survives the round trip, leaving a daily reminder and
 re-opening the app to be greeted by it exactly once, checking persistence across
 a reload, dark mode, that a focused text field is never removed from the
 document when the screen around it re-renders (iOS closes the keyboard the
-instant that happens, and does not reopen it), and that it still works with the
+instant that happens, and does not reopen it), that the calendar bridge is a
+real same-tab link to a `data:text/calendar` URI rather than a share-sheet
+trip or a `blob:` URL (both were tried and reproducibly failed — see the
+comment above `icsDataUrl` in `settings.js`), and that it still works with the
 network switched off. It fails on any console error.
 
 ---
