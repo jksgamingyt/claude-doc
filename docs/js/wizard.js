@@ -16,7 +16,7 @@ import {
 import { nextOccurrence } from './engine.js';
 import {
   h, mount, icon, chip, fieldBlock, summaryCard, toggleRow, optionSlider,
-  openSheet, toast,
+  continuousSlider, openSheet, toast,
 } from './ui.js';
 
 // ---------------------------------------------------------------------------
@@ -56,19 +56,29 @@ const DAY_SHORTCUTS = [
 
 const DAY_OFFSETS = DAY_SHORTCUTS.map((item) => item.days);
 
-/** The stop a slider thumb should rest on when the real value is off-grid. */
-function nearestStop(value, stops) {
-  let best = stops[0];
-  for (const stop of stops) {
-    if (Math.abs(stop - value) < Math.abs(best - value)) best = stop;
-  }
-  return best;
-}
 const dayOffsetLabel = (days) => (DAY_SHORTCUTS.find((item) => item.days === days) || {}).label || '';
 
 const TIME_SHORTCUTS = [7 * 60, 9 * 60, 12 * 60, 15 * 60, 18 * 60, 21 * 60];
+const TIME_STEP = 5;
 
 const DURATIONS = [15, 30, 60, 90, 120, 180, 240, ALL_DAY_MINUTES];
+const DURATION_STEP = 5;
+
+/** Shared by every "time of day" slider: any minute, not just the shortcuts. */
+function timeOfDaySlider({ value, tone, onInput, onCommit }) {
+  return continuousSlider({
+    min: 0,
+    max: 24 * 60 - TIME_STEP,
+    step: TIME_STEP,
+    stops: TIME_SHORTCUTS,
+    value,
+    format: formatMinutes,
+    label: 'Time of day',
+    tone,
+    onInput,
+    onCommit,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Shared chrome
@@ -259,7 +269,6 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       day: startOfDay(editing.due),
       dayStop: 0,
       minutes: minutesOfDay(editing.due),
-      timeStop: nearestStop(minutesOfDay(editing.due), TIME_SHORTCUTS),
       isAllDay: editing.isAllDay,
       linger: editing.linger,
       reminders: editing.reminders.slice(),
@@ -278,7 +287,6 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       day: defaultDay,
       dayStop: hour < 20 ? 0 : 1,
       minutes: defaultMinutes,
-      timeStop: defaultMinutes,
       isAllDay: false,
       linger: settings.defaultLinger,
       reminders: settings.defaultTemporaryReminders.slice(),
@@ -326,16 +334,10 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const shortcuts = optionSlider({
-          options: TIME_SHORTCUTS,
-          value: d.timeStop,
-          format: formatMinutes,
-          label: 'Time of day',
+        const shortcuts = timeOfDaySlider({
+          value: d.minutes,
           tone: 'clay',
-          onInput: (minutes) => {
-            d.timeStop = minutes;
-            d.minutes = minutes;
-          },
+          onInput: (minutes) => { d.minutes = minutes; },
           onCommit: refresh,
         });
 
@@ -438,7 +440,6 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
       recurrence: JSON.parse(JSON.stringify(editing.recurrence)),
       startDate: editing.startDate,
       minutes: editing.startMinutes,
-      timeStop: nearestStop(editing.startMinutes, TIME_SHORTCUTS),
       durationMinutes: editing.durationMinutes,
       ...splitReminders(editing.reminders),
       notify: editing.reminders.length > 0,
@@ -452,7 +453,6 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
       recurrence: defaultRecurrence(),
       startDate: startOfDay(Date.now()),
       minutes: 9 * 60,
-      timeStop: 9 * 60,
       durationMinutes: 60,
       ...splitReminders(settings.defaultPermanentReminders),
       notify: settings.defaultPermanentReminders.length > 0,
@@ -538,15 +538,9 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const shortcuts = optionSlider({
-          options: TIME_SHORTCUTS,
-          value: d.timeStop,
-          format: formatMinutes,
-          label: 'Time of day',
-          onInput: (minutes) => {
-            d.timeStop = minutes;
-            d.minutes = minutes;
-          },
+        const shortcuts = timeOfDaySlider({
+          value: d.minutes,
+          onInput: (minutes) => { d.minutes = minutes; },
           onCommit: refresh,
         });
 
@@ -569,8 +563,11 @@ export function openPermanentWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const durations = optionSlider({
-          options: DURATIONS,
+        const durations = continuousSlider({
+          min: DURATIONS[0],
+          max: ALL_DAY_MINUTES,
+          step: DURATION_STEP,
+          stops: DURATIONS,
           value: d.durationMinutes,
           format: formatDuration,
           label: 'Holds for',

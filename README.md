@@ -139,6 +139,15 @@ holds — each one is a single track you slide, with the choice read out above i
 The exact date and time pickers are still there underneath for anything
 off-grid.
 
+**The two sliders that are actual clock times — what time of day, how long it
+holds — are a real continuum, not six fixed stops.** Drag between two presets
+(3pm and 6pm, say) and it lands exactly on 4pm rather than snapping to
+whichever is nearer; a small "Custom" readout confirms the exact value right
+over the thumb while you're setting it. Letting go doesn't slam the screen to
+match — the readout holds for a couple of seconds after you stop moving, then
+fades out as the rest of the screen catches up, so there's always a beat to
+see exactly what got set.
+
 **Every note is asked whether it should notify you at all.** Answer no and the
 note is silent: it still sits on your schedule and still goes to Calendar, it
 just never buzzes. Answer yes and the nudge options open up — as many lead times
@@ -294,7 +303,7 @@ MySchedule.xcodeproj/
 
 test/
   run.mjs                 75 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             117 checks driving the real app in a real browser
+  browser.mjs             133 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```

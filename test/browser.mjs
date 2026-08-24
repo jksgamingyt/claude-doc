@@ -187,6 +187,17 @@ async function sliderReadout(label) {
   }, label);
 }
 
+/** The floating "Custom · …" readout continuousSlider() pops up over the thumb. */
+async function customBubble(label) {
+  return page.evaluate((wanted) => {
+    const field = [...document.querySelectorAll('.slider-field')]
+      .find((f) => f.querySelector('.slider-label')?.textContent === wanted);
+    const bubble = field ? field.querySelector('.slider-custom') : null;
+    if (!bubble) return { found: false };
+    return { found: true, visible: bubble.classList.contains('visible'), text: bubble.textContent };
+  }, label);
+}
+
 // ---------------------------------------------------------------------------
 
 await page.goto(base, { waitUntil: 'networkidle' });
@@ -255,11 +266,117 @@ check('wizard step 2 asks for the time', await page.getByText('What time is it d
 const titleReport = await detachReport('.sheet-body input.textinput');
 check('the note title is never detached when the step changes',
   titleReport.detached === false, JSON.stringify(titleReport));
-await setSlider('Time of day', 4);
+// The slider is a continuous range now, not a fixed set of stops — set it to
+// a raw minute value (18 * 60 = 6pm), one of the labelled stops.
+await setSlider('Time of day', 18 * 60);
 check('the time slider reads back what it selected',
   (await sliderReadout('Time of day')) === '6:00 PM',
   String(await sliderReadout('Time of day')));
 await shot('wizard-time');
+
+// --- a custom, off-grid time (4pm sits between the 3pm and 6pm stops) can be
+// dragged to directly, not just snapped to whichever preset is nearest —
+// the actual ask behind this: "dragging a note to clear at 4pm".
+await setSlider('Time of day', 16 * 60);
+check('a custom time can be dragged to directly, between two stops',
+  (await sliderReadout('Time of day')) === '4:00 PM',
+  String(await sliderReadout('Time of day')));
+
+const bubbleShown = await customBubble('Time of day');
+check('a "Custom" readout pops up over the thumb for it',
+  bubbleShown.found && bubbleShown.visible && bubbleShown.text.includes('4:00 PM'),
+  JSON.stringify(bubbleShown));
+
+// The bubble is centred on the thumb, but the thumb can sit right at either
+// end of the track — a naive centred-with-no-clamp popup runs off the edge
+// of the card there (reproduced directly while building this: dragging near
+// midnight pushed "Custom · 2:10 AM" half off the left edge of the sheet).
+// Check both ends.
+await setSlider('Time of day', 5); // 12:05am — hard against the left end
+const edgeReport = await page.evaluate(() => {
+  const field = [...document.querySelectorAll('.slider-field')]
+    .find((f) => f.querySelector('.slider-label')?.textContent === 'Time of day');
+  const sheet = document.querySelector('.sheet').getBoundingClientRect();
+  const bubble = field.querySelector('.slider-custom').getBoundingClientRect();
+  return { sheetLeft: sheet.left, bubbleLeft: bubble.left, bubbleRight: bubble.right, sheetRight: sheet.right };
+});
+check('near the left end of the track, the bubble stays fully on-screen',
+  edgeReport.bubbleLeft >= edgeReport.sheetLeft, JSON.stringify(edgeReport));
+
+await setSlider('Time of day', 24 * 60 - 5); // 11:55pm — hard against the right end
+const edgeReport2 = await page.evaluate(() => {
+  const field = [...document.querySelectorAll('.slider-field')]
+    .find((f) => f.querySelector('.slider-label')?.textContent === 'Time of day');
+  const sheet = document.querySelector('.sheet').getBoundingClientRect();
+  const bubble = field.querySelector('.slider-custom').getBoundingClientRect();
+  return { sheetRight: sheet.right, bubbleRight: bubble.right };
+});
+check('near the right end of the track, it stays on-screen there too',
+  edgeReport2.bubbleRight <= edgeReport2.sheetRight, JSON.stringify(edgeReport2));
+
+// Put it back to 4pm — the checks below pick up from here, timing the grace
+// period from this exact move.
+await setSlider('Time of day', 16 * 60);
+
+// It must not slam the screen the instant the drag lets go — that was the
+// actual complaint. The summary card below still reflects the old, already
+// -committed 6pm right after release, not the new 4pm.
+const summaryRightAfter = await page.locator('.summary strong').last().textContent();
+check('right after release, the rest of the screen has not caught up yet — '
+  + 'no instant snap to the new value', !summaryRightAfter.includes('4:00'), summaryRightAfter);
+check('and the custom readout is still showing, not gone the instant a finger lifts',
+  (await customBubble('Time of day')).visible === true);
+
+await page.waitForTimeout(900);
+check('still holding, under the two-second grace period',
+  !(await page.locator('.summary strong').last().textContent()).includes('4:00')
+  && (await customBubble('Time of day')).visible === true);
+
+await page.waitForTimeout(1400); // total > 2000ms since the last movement
+const summaryAfterDelay = await page.locator('.summary strong').last().textContent();
+check('about two seconds after the last movement, the screen catches up',
+  summaryAfterDelay.includes('4:00'), summaryAfterDelay);
+check('and the custom readout is gone — a fresh, settled slider has no '
+  + 'bubble on it, editing this note again later would not either',
+  (await customBubble('Time of day')).visible === false);
+await shot('wizard-time-custom');
+
+// --- the delay must not survive navigating away mid-grace-period. Set
+// another custom value, then leave the step before the 2s is up: the stray
+// commit that would otherwise fire later must be dropped rather than
+// silently rebuilding whatever step the wizard has moved on to — the exact
+// class of bug that has cost this app its keyboard before (see
+// continuousSlider()'s document.contains(input) guard in ui.js). The note
+// title itself is immune to this (it lives outside stepHost and is never
+// rebuilt by refresh() — that isolation is the earlier fix), so the probe
+// has to be something that genuinely lives inside the step that gets
+// rebuilt: the "Anything else?" field on the step after this one.
+await setSlider('Time of day', 17 * 60); // 5pm, custom again
+check('another custom value is set', (await sliderReadout('Time of day')) === '5:00 PM');
+await page.locator('.sheet-foot .btn:not(.soft)').click(); // Next, before the 2s grace period ends
+await page.waitForTimeout(220);
+check('the wizard moved on to the next step', await page.getByText('When should it disappear?').count() > 0);
+
+const detailsField = page.locator('.sheet-body textarea.textarea').first();
+await detailsField.click();
+await watchForDetach('.sheet-body textarea.textarea');
+await page.keyboard.type('remember the candles');
+await page.waitForTimeout(2200); // well past where the dropped commit would have fired
+const strayReport = await detachReport('.sheet-body textarea.textarea');
+check("a field on the step the wizard has since moved to survives a pending "
+  + 'custom-time commit resolving behind it — no stray rebuild reaches in '
+  + 'and wipes it out, or the keyboard with it',
+  strayReport.detached === false && strayReport.value === 'remember the candles',
+  JSON.stringify(strayReport));
+check('still on the same step, undisturbed, no console errors either',
+  await page.getByText('When should it disappear?').count() > 0
+  && problems.length === 0);
+await detailsField.fill(''); // put it back the way it was
+
+await page.locator('.sheet-foot .btn.soft').click(); // Back, to continue the rest of the flow as before
+await page.waitForTimeout(220);
+await setSlider('Time of day', 18 * 60); // put it back on a preset stop
+check('back on step 2', await page.getByText('What time is it due?').count() > 0);
 
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
@@ -321,11 +438,20 @@ check('the recurrence slider reads back what it selected',
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('permanent wizard asks the time of day', await page.getByText('What time of day?').count() > 0);
-await setSlider('Time of day', 0);
+await setSlider('Time of day', 7 * 60);
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('permanent wizard asks how long it holds',
   await page.getByText('How long should it stay on the schedule?').count() > 0);
+
+// "Holds for" is the other slider that genuinely involves time — it gets the
+// same treatment: 45 minutes sits between the 30m and 60m stops.
+await setSlider('Holds for', 45);
+check('a custom duration can be dragged to directly too',
+  (await sliderReadout('Holds for')) === '45m', String(await sliderReadout('Holds for')));
+check('and it gets the same "Custom" readout',
+  (await customBubble('Holds for')).text.includes('45m'),
+  JSON.stringify(await customBubble('Holds for')));
 await shot('perm-wizard-duration');
 
 await page.locator('.sheet-foot .btn:not(.soft)').click();

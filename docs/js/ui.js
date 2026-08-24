@@ -281,6 +281,179 @@ export function optionSlider({
   );
 }
 
+/**
+ * A slider over a continuous range with a handful of labelled stops on it —
+ * for values that are genuinely points on a scale (a time of day, a
+ * duration) rather than a short list of named choices.
+ *
+ * Landing exactly on a stop behaves like optionSlider always has: letting go
+ * commits straight away. Anywhere else is a custom, off-grid value: the
+ * slider is free to rest there (dragging between 3pm and 6pm can land on
+ * 4pm, not just snap to whichever preset is nearer). While that's happening
+ * a small "Custom" readout pops up over the thumb naming the exact value —
+ * a momentary confirmation, the same idea as the volume HUD on a phone, not
+ * a permanent label — and letting go does NOT immediately rebuild the
+ * screen around it or snatch the readout away. The value itself still
+ * updates live via onInput, same as always; only the surrounding screen's
+ * catch-up (onCommit) waits, `commitDelayMs` after the last movement, and
+ * the readout fades out at that same moment. A still-settling drag never
+ * gets cut off mid-adjustment, and there's always a beat to actually see
+ * what was just set before it goes away.
+ *
+ * The bubble only ever appears in response to an actual interaction in this
+ * render — never on first paint, even editing a note whose time is already
+ * off-grid. It is a "you just changed this" confirmation, not a permanent
+ * marker; the plain readout above the track already names the exact value
+ * at all times, custom or not.
+ *
+ * If the step this slider lives on gets torn down (Back/Next/close) before
+ * that delay is up, the pending commit is dropped rather than fired blind —
+ * see the document.contains(input) guard below. Without it, a slow-motion
+ * refresh() lands on whatever the wizard has moved on to since, which is
+ * exactly the class of stray re-render that has cost this app its keyboard
+ * before.
+ */
+export function continuousSlider({
+  min,
+  max,
+  step = 1,
+  stops = [],
+  value,
+  format,
+  formatCustom = format,
+  onInput,
+  onCommit,
+  tone = '',
+  label = '',
+  ariaLabel,
+  commitDelayMs = 2000,
+}) {
+  const isStop = (v) => stops.includes(v);
+
+  const readout = h('span.slider-value', { text: format(value) });
+  const input = h('input.slider', {
+    type: 'range',
+    min: String(min),
+    max: String(max),
+    step: String(step),
+    value: String(value),
+    'aria-label': ariaLabel || label || 'Choose a value',
+    'aria-valuetext': format(value),
+  });
+  const bubble = h('div.slider-custom', { 'aria-hidden': 'true' });
+  const track = h('div.slider-track', bubble, input);
+
+  function paint(v) {
+    const fraction = (v - min) / Math.max(1, max - min);
+    input.style.setProperty('--fill', `${fraction * 100}%`);
+    return fraction;
+  }
+
+  function setReadoutText(v) {
+    const text = isStop(v) ? format(v) : formatCustom(v);
+    readout.textContent = text;
+    input.setAttribute('aria-valuetext', text);
+  }
+
+  /**
+   * The bubble is centred on the thumb by default, but its width varies with
+   * the text ("2:10 AM" vs "11:59 PM" vs "45m") and the thumb can sit right
+   * at either end of the track — centred-with-no-clamp runs the bubble off
+   * the edge of the card there. Measuring its real rendered width (already
+   * available even while opacity: 0, since the box still lays out) and
+   * clamping in pixels is the only way to keep it on-screen at every value,
+   * not just the ones a fixed CSS rule happens to cover.
+   */
+  function positionBubble(fraction) {
+    const trackWidth = track.offsetWidth;
+    const bubbleWidth = bubble.offsetWidth;
+    if (!trackWidth || !bubbleWidth) {
+      bubble.style.left = `${fraction * 100}%`;
+      bubble.style.transform = 'translateX(-50%)';
+      return;
+    }
+    const half = bubbleWidth / 2;
+    const centerPx = Math.min(trackWidth - half, Math.max(half, fraction * trackWidth));
+    bubble.style.left = `${centerPx}px`;
+    bubble.style.transform = 'translateX(-50%)';
+  }
+
+  // The bubble sits right beside the numeric readout at this width, so the
+  // two would otherwise overlap for any value near the right-hand end of the
+  // track. The bubble already says the same thing more prominently, right at
+  // the thumb, so the readout dims out of its way rather than the two
+  // fighting for the same space.
+  function showBubble(v, fraction) {
+    bubble.textContent = `Custom · ${formatCustom(v)}`;
+    bubble.classList.add('visible');
+    readout.classList.add('dim');
+    positionBubble(fraction); // after the text, not before — width depends on it
+  }
+
+  function hideBubble() {
+    bubble.classList.remove('visible');
+    readout.classList.remove('dim');
+  }
+
+  let commitTimer = null;
+  function clearTimer() {
+    if (commitTimer) { clearTimeout(commitTimer); commitTimer = null; }
+  }
+  function scheduleSettle(v) {
+    clearTimer();
+    commitTimer = setTimeout(() => {
+      commitTimer = null;
+      hideBubble();
+      if (!document.contains(input)) return; // this step has moved on; nothing to catch up
+      if (onCommit) onCommit(v);
+    }, commitDelayMs);
+  }
+
+  input.addEventListener('input', () => {
+    const v = Number(input.value);
+    setReadoutText(v);
+    const fraction = paint(v);
+    if (onInput) onInput(v);
+    if (isStop(v)) { clearTimer(); hideBubble(); } else { showBubble(v, fraction); scheduleSettle(v); }
+  });
+
+  input.addEventListener('change', () => {
+    const v = Number(input.value);
+    if (isStop(v)) {
+      clearTimer();
+      hideBubble();
+      if (onCommit) onCommit(v);
+    } else {
+      // A release can land here without a preceding `input` in some
+      // browsers (a single tap that both drags and lets go) — make sure the
+      // bubble is showing and the grace period is running rather than
+      // assuming either already is.
+      showBubble(v, (v - min) / Math.max(1, max - min));
+      scheduleSettle(v);
+    }
+  });
+
+  paint(value);
+  setReadoutText(value);
+
+  const ticks = stops.length
+    ? h('div.slider-ticks-abs', ...stops.map((stop) => h('i', {
+      style: { left: `${((stop - min) / Math.max(1, max - min)) * 100}%` },
+    })))
+    : null;
+  if (ticks) track.appendChild(ticks);
+
+  return h(`div.slider-field${tone ? '.' + tone : ''}`,
+    h('div.slider-head',
+      label && h('span.slider-label', { text: label }),
+      readout),
+    track,
+    h('div.slider-ends',
+      h('span', { text: format(min) }),
+      h('span', { text: format(max) })),
+  );
+}
+
 export function toggleRow(label, help, value, onChange) {
   return h('div.toggle-row',
     h('div',

@@ -699,6 +699,9 @@ input[type='date'], input[type='time'], input[type='number'] {
 
 .slider-field.clay .slider-value { color: var(--clay); }
 
+.slider-value { transition: opacity 160ms ease; }
+.slider-value.dim { opacity: 0; }
+
 input.slider {
   -webkit-appearance: none;
   appearance: none;
@@ -761,6 +764,56 @@ input.slider:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--sky)
 .slider-ticks i {
   width: 3px; height: 3px; border-radius: 50%;
   background: var(--ink-3); opacity: 0.45; display: block;
+}
+
+/* continuousSlider() — a real range with a few labelled stops on it, and a
+   floating "Custom" readout for everything in between. */
+
+.slider-track { position: relative; }
+
+.slider-ticks-abs {
+  position: relative;
+  height: 6px;
+  margin-top: -4px;
+  pointer-events: none;
+}
+
+.slider-ticks-abs i {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 3px; height: 3px; border-radius: 50%;
+  background: var(--ink-3); opacity: 0.45; display: block;
+}
+
+.slider-custom {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--canvas);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+  z-index: 2;
+}
+
+.slider-custom.visible { opacity: 1; }
+
+.slider-custom::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
 }
 
 .slider-ends {
