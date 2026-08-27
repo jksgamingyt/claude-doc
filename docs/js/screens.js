@@ -1,7 +1,7 @@
 // screens.js — welcome, schedule, and the two notes sections.
 
 import {
-  TAGS, LINGERS, DAILY_OFFSETS, dailyOffsetLabel,
+  TAGS, LINGERS, DAILY_OFFSETS, dailyOffsetLabel, GOAL_OFFSETS, goalOffsetLabel,
   startOfDay, addDays, addMonths, startOfMonth, sameDay, sameMonth,
   formatMonth, formatMonthYear, formatMonthDay, formatWeekday, formatDayHeadline,
   formatFull, formatTime, formatDuration, formatMinutes, countdown, dayName,
@@ -11,7 +11,7 @@ import {
   entriesOn, markerFor, agenda, upcoming, gridDays, weekdayHeadings,
   monthsBetween, calendarBounds, nextOccurrence, rangeLabel,
 } from './engine.js';
-import { GROUP_LABELS } from './store.js';
+import { GROUP_LABELS, GOAL_GROUP_LABELS } from './store.js';
 import {
   h, mount, icon, pill, chip, emptyState, openSheet, confirmSheet, toast, leafMark,
   optionSlider, fieldBlock,
@@ -83,6 +83,8 @@ export function welcomeScreen(app) {
             state.permanent.filter((n) => !n.isMuted).length, 'standing', 'permanent'),
           door('Daily reminders', 'A word left for tomorrow morning', 'sunrise', 'gold',
             store.upcomingDaily.length, 'waiting', 'daily'),
+          door('Goals', 'Things to work toward, at your own pace', 'target', 'fern',
+            state.goals.filter((g) => !g.achievedAt).length, 'open', 'goals'),
           door('The schedule', "Everything you've written, laid out by day", 'calendar', 'sky',
             entriesOn(state, now).length, 'today', 'schedule'))
         : h('div', { style: { width: '100%', maxWidth: '340px' } },
@@ -817,6 +819,208 @@ export function dailyGreeting(app, reminders, onDone) {
 
   document.body.appendChild(overlay);
   return overlay;
+}
+
+// ---------------------------------------------------------------------------
+// Goals — things to work toward, kept entirely apart from the schedule
+// ---------------------------------------------------------------------------
+//
+// Deliberately the plainest section in the app: a goal is just what and by
+// when. No time of day, no reminders, no recurrence, and it never appears on
+// the schedule or in a calendar export — see the note on Store's "goals"
+// methods for why. Achieving one is the only kind of "done" it has.
+
+export function goalsScreen(app) {
+  const store = app.store;
+  const state = store.state;
+  const root = h('div.screen');
+  const body = h('div.scroll');
+  const groups = store.groupedGoals();
+
+  if (!state.goals.length) {
+    body.appendChild(emptyState('target', 'No goals yet',
+      "Write something you want to accomplish or change below, and give it a date to work toward. It stays off the schedule — this is just for you to track."));
+  } else {
+    body.appendChild(h('div.summary', { style: { marginTop: '4px' } },
+      icon('target', 16),
+      h('div',
+        h('strong', 'These are yours alone'),
+        h('div.small.muted', 'Goals never appear on the schedule and never send a reminder. Check one off when you get there.'))));
+
+    for (const group of groups) {
+      const tone = group.group === 'overdue' ? '.clay' : (group.group === 'achieved' ? '.moss' : '');
+      body.appendChild(h(`div.section-label${tone}`, { text: GOAL_GROUP_LABELS[group.group] }));
+      for (const goal of group.goals) body.appendChild(goalRow(app, goal));
+    }
+  }
+
+  mount(root,
+    h('div.topbar', h('h1', 'Goals')),
+    body,
+    composer(app, {
+      tone: '',
+      iconName: 'target',
+      placeholder: 'Something you want to accomplish…',
+      hint: 'Return asks what date to work toward.',
+      onSubmit: (text) => openGoalSheet(app, { seed: text }),
+    }),
+  );
+
+  return root;
+}
+
+function goalRow(app, goal) {
+  const store = app.store;
+  const now = store.state.now;
+  const today = startOfDay(now);
+  const achieved = !!goal.achievedAt;
+  const overdue = !achieved && goal.dueDate < today;
+  const classes = ['note', overdue ? 'overdue' : '', achieved ? 'done' : ''].filter(Boolean).join('.');
+
+  const check = h('button.check', {
+    type: 'button',
+    'aria-pressed': achieved ? 'true' : 'false',
+    'aria-label': achieved ? 'Mark as not achieved' : 'Mark as achieved',
+    onclick: (event) => { event.stopPropagation(); store.setGoalAchieved(goal.id, !achieved); },
+  }, icon('check', 14));
+
+  return h(`div.${classes}`,
+    h('div.rail', { style: { background: 'var(--tag-fern)' } }),
+    h('button.grow', {
+      type: 'button',
+      style: { textAlign: 'left', background: 'none' },
+      onclick: () => openGoalSheet(app, { editing: goal }),
+    },
+    h('div.title', { text: goal.text }),
+    h('div.meta',
+      achieved
+        ? pill(`Achieved ${dayName(goal.achievedAt, now)}`, 'grey', 'check')
+        : pill(`By ${dayName(goal.dueDate, now)}`, overdue ? 'clay' : 'moss', 'target'),
+      !achieved && h('span.tiny', { style: { color: overdue ? 'var(--clay)' : 'var(--ink-3)' }, text: countdown(goal.dueDate, now) }))),
+    check,
+  );
+}
+
+/** One question: by when. */
+export function openGoalSheet(app, { seed, editing } = {}) {
+  const store = app.store;
+  const today = startOfDay(store.state.now || Date.now());
+
+  const draft = editing
+    ? {
+      id: editing.id,
+      text: editing.text,
+      dueDate: editing.dueDate,
+      offset: Math.max(0, Math.round((editing.dueDate - today) / 86400000)),
+      createdAt: editing.createdAt,
+      achievedAt: editing.achievedAt,
+    }
+    : { text: seed || '', dueDate: addDays(today, 30), offset: 30 };
+
+  openSheet((sheet) => {
+    const textInput = h('input.textinput', {
+      value: draft.text,
+      placeholder: 'What do you want to accomplish?',
+      'aria-label': 'Goal',
+      // Same reason as every other sheet here: refresh() re-mounts the body
+      // below and would take this field out of the document with it, closing
+      // the keyboard. Only Save reads the title, so update just that.
+      oninput: (event) => {
+        draft.text = event.target.value;
+        save.disabled = !draft.text.trim();
+      },
+    });
+
+    const save = h('button.btn', { type: 'button' }, editing ? 'Save' : 'Set this goal');
+
+    // Built once, never rebuilt — see the comment on the equivalent card in
+    // openDailySheet for why that guarantee has to be exact, not "unlikely".
+    const header = h('div.card.raised', { style: { marginBottom: '18px' } },
+      h('div.tiny.faint', { style: { letterSpacing: '0.08em', marginBottom: '7px' },
+        text: 'GOAL · KEPT OFF THE SCHEDULE' }),
+      textInput);
+
+    const options = h('div');
+    mount(sheet.body, header, options);
+
+    function render() {
+      mount(sheet.head,
+        h('button', { type: 'button', onclick: sheet.close }, 'Cancel'),
+        h('div.mid', h('strong', { text: editing ? 'Edit goal' : 'New goal' })),
+        h('span', { style: { width: '54px' } }));
+
+      const nearestOffset = GOAL_OFFSETS.includes(draft.offset) ? draft.offset : 30;
+
+      mount(options,
+        fieldBlock('By when?', 'Give it a date to work toward.',
+          optionSlider({
+            options: GOAL_OFFSETS,
+            value: nearestOffset,
+            format: goalOffsetLabel,
+            label: 'Target',
+            onInput: (days) => {
+              draft.offset = days;
+              draft.dueDate = addDays(today, days);
+            },
+            onCommit: render,
+          }),
+          h('div', { style: { marginTop: '12px' } },
+            h('input', {
+              type: 'date',
+              value: toDateValue(draft.dueDate),
+              'aria-label': 'Exact target date',
+              onchange: (event) => {
+                const parsed = fromDateValue(event.target.value);
+                if (parsed != null) {
+                  draft.dueDate = parsed;
+                  draft.offset = Math.round((draft.dueDate - today) / 86400000);
+                  render();
+                }
+              },
+            }))),
+
+        h('div.summary',
+          icon('target', 16),
+          h('div',
+            h('strong', { text: `By ${formatDayHeadline(draft.dueDate)}` }),
+            h('div.small.muted', {
+              text: draft.dueDate < today ? 'Already past — this will start out marked past due.' : countdown(draft.dueDate, today),
+            }))),
+      );
+
+      save.disabled = !draft.text.trim();
+      save.onclick = () => {
+        if (!draft.text.trim()) return;
+        const fields = {
+          id: draft.id,
+          text: draft.text.trim(),
+          dueDate: draft.dueDate,
+          createdAt: draft.createdAt,
+          achievedAt: draft.achievedAt,
+        };
+        if (editing) store.updateGoal(fields);
+        else store.addGoal(fields);
+        sheet.close();
+        app.render();
+      };
+
+      mount(sheet.foot,
+        editing && h('button.btn.soft', {
+          type: 'button',
+          onclick: () => {
+            sheet.close();
+            confirmSheet({
+              title: 'Remove this goal?',
+              message: 'This cannot be undone.',
+              onConfirm: () => { store.deleteGoal(editing.id); app.render(); },
+            });
+          },
+        }, icon('trash', 14)),
+        save);
+    }
+
+    render();
+  });
 }
 
 const GREETING_RIDGES = `

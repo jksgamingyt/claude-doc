@@ -160,6 +160,14 @@ greets you on its own screen, straight after the welcome, once. Sleep through it
 and it waits rather than disappearing. They have no clock time and never sit on
 the calendar; they simply meet you at the door.
 
+**Goals** are a third, separate thing — not a note, and not on the schedule.
+Type one, press return, and the app asks a single question: *by when*. No time
+of day, no reminders, no recurrence, nothing sent to Calendar. Just what you
+want to accomplish or change, and a date to work toward, sorted into **Past
+due**, **In progress**, and **Achieved** — check one off when you get there.
+Nothing else in the app reads from this list; it exists purely for you to look
+at.
+
 **The schedule** is a view, not a store. Every day is assembled from the two
 notes sections each time you look at it, so it can never fall out of step with
 what you actually wrote.
@@ -168,9 +176,9 @@ what you actually wrote.
 
 ## What's in it
 
-**Welcome screen** — a nature backdrop with soft ridgelines, opening onto four
-doors: temporary notes, permanent notes, daily reminders, or the schedule. Can be turned off, or
-set to open straight to one section.
+**Welcome screen** — a nature backdrop with soft ridgelines, opening onto five
+doors: temporary notes, permanent notes, daily reminders, goals, or the
+schedule. Can be turned off, or set to open straight to one section.
 
 **Schedule** — a real calendar for the configured year (2026 by default), month
 grid and agenda, coloured dots marking the days that have something on them. The
@@ -187,6 +195,10 @@ of day and a duration. Pause one to hide it without losing it.
 
 **Daily** — everything waiting for a morning, plus what has already been said.
 Tap any of them to change the morning or take it back.
+
+**Goals** — grouped into past due / in progress / achieved, each showing its
+target date and how far off it is. Tap the checkmark to mark one achieved,
+tap the goal itself to change the date or the wording, or remove it outright.
 
 **Recently cleared** — expired and removed notes land here rather than
 vanishing. Bring any of them back with one tap. Kept 30 days by default.
@@ -271,8 +283,8 @@ used anywhere else, change it there.
 There is also a complete **native SwiftUI version** in `MySchedule/` and
 `MySchedule.xcodeproj`. Same model, same design, and it can schedule real
 notifications by itself with no calendar detour. It is a couple of revisions
-behind: its option pickers are still chips rather than sliders, and it has no
-daily reminders section. It needs a Mac with Xcode 15+
+behind: its option pickers are still chips rather than sliders, and it has
+neither a daily reminders section nor a goals section. It needs a Mac with Xcode 15+
 to build — see the section below on the repository layout. Nothing about the web
 app depends on it; keep it or ignore it.
 
@@ -294,7 +306,7 @@ docs/                     the web app — this is what GitHub Pages serves
     notify.js             reminder timetable, live alerts, catch-up
     ui.js                 DOM helpers, icons, sheets, the leaf mark
     wizard.js             the two three-step flows
-    screens.js            welcome, schedule, both note lists
+    screens.js            welcome, schedule, notes, daily reminders, goals
     settings.js           settings, archive, calendar export
     app.js                entry point and routing
 
@@ -302,8 +314,8 @@ MySchedule/               the native SwiftUI version (needs a Mac)
 MySchedule.xcodeproj/
 
 test/
-  run.mjs                 75 logic tests — recurrence, expiry, sweep, ICS
-  browser.mjs             133 checks driving the real app in a real browser
+  run.mjs                 87 logic tests — recurrence, expiry, sweep, ICS, goals
+  browser.mjs             157 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -330,12 +342,15 @@ npm run shots        # browser suite + screenshots of every screen
 daylight-saving boundaries, the last-day-of-a-short-month fallback, expiry and
 lingering, the sweep, lossy loading of a corrupt record, silent notes staying
 silent everywhere, a daily reminder written at 11:59pm waiting until the next
-morning, and the generated calendar file down to its line endings and escaping.
+morning, goals grouping into past due / in progress / achieved and staying out
+of both the schedule and the calendar export, and the generated calendar file
+down to its line endings and escaping.
 
 `test/browser.mjs` drives the actual app in Chromium at iPhone dimensions —
 walking both wizards end to end, saving a note as silent and re-opening it to
 confirm the answer survives the round trip, leaving a daily reminder and
-re-opening the app to be greeted by it exactly once, checking persistence across
+re-opening the app to be greeted by it exactly once, setting a goal and marking
+it achieved and back, checking persistence across
 a reload, dark mode, that a focused text field is never removed from the
 document when the screen around it re-renders (iOS closes the keyboard the
 instant that happens, and does not reopen it), that the calendar bridge really is

@@ -589,6 +589,133 @@ await test('daily reminders do not appear on the calendar', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Goals — a third, separate thing: never the schedule, never a reminder
+// ---------------------------------------------------------------------------
+
+await test('a new goal defaults to a month out and unachieved', () => {
+  const goal = M.makeGoal({ text: 'Learn Spanish' });
+  assert.equal(goal.dueDate, M.startOfDay(Date.now() + 30 * M.DAY));
+  assert.equal(goal.achievedAt, null);
+});
+
+await test('adding and updating a goal round-trips through the store', () => {
+  const store = freshStore();
+  const goal = store.addGoal({ text: 'Run a 10k', dueDate: at(2026, 9, 1) });
+  assert.equal(store.state.goals.length, 1);
+  store.updateGoal({ id: goal.id, text: 'Run a half marathon', dueDate: at(2026, 11, 1) });
+  assert.equal(store.state.goals[0].text, 'Run a half marathon');
+  assert.equal(store.state.goals[0].dueDate, at(2026, 11, 1));
+  assert.equal(store.state.goals.length, 1, 'updated in place, not duplicated');
+});
+
+await test('marking a goal achieved and unmarking it toggles achievedAt', () => {
+  const store = freshStore();
+  const goal = store.addGoal({ text: 'Run a 10k', dueDate: at(2026, 9, 1) });
+  store.setGoalAchieved(goal.id, true);
+  assert.ok(store.state.goals[0].achievedAt);
+  store.setGoalAchieved(goal.id, false);
+  assert.equal(store.state.goals[0].achievedAt, null);
+});
+
+await test('deleting a goal removes it outright, no archive', () => {
+  const store = freshStore();
+  const goal = store.addGoal({ text: 'Run a 10k', dueDate: at(2026, 9, 1) });
+  store.deleteGoal(goal.id);
+  assert.equal(store.state.goals.length, 0);
+  assert.equal(store.state.archive.length, 0, 'goals do not go through the archive');
+});
+
+await test('goals group into past due, in progress, and achieved', () => {
+  const store = freshStore();
+  store.state.now = at(2026, 7, 18, 9, 0);
+  const late = store.addGoal({ text: 'Late', dueDate: at(2026, 7, 1) });
+  store.addGoal({ text: 'On track', dueDate: at(2026, 8, 1) });
+  const done = store.addGoal({ text: 'Done', dueDate: at(2026, 6, 1) });
+  store.setGoalAchieved(done.id, true);
+
+  const groups = store.groupedGoals();
+  assert.deepEqual(groups.map((g) => g.group), ['overdue', 'upcoming', 'achieved']);
+  assert.deepEqual(groups[0].goals.map((g) => g.id), [late.id]);
+  assert.deepEqual(groups[2].goals.map((g) => g.id), [done.id]);
+});
+
+await test('within a group, overdue and upcoming sort soonest first, achieved sorts most-recent first', () => {
+  const store = freshStore();
+  store.state.now = at(2026, 7, 18, 9, 0);
+  store.addGoal({ text: 'Sooner', dueDate: at(2026, 8, 1) });
+  store.addGoal({ text: 'Later', dueDate: at(2026, 9, 1) });
+  const first = store.addGoal({ text: 'Achieved first', dueDate: at(2026, 6, 1) });
+  const second = store.addGoal({ text: 'Achieved second', dueDate: at(2026, 6, 1) });
+  // Set explicit, unambiguously-ordered timestamps rather than two real
+  // setGoalAchieved() calls back to back — those can land in the same
+  // millisecond and make the sort order a coin flip.
+  store.updateGoal({ id: first.id, achievedAt: at(2026, 7, 10) });
+  store.updateGoal({ id: second.id, achievedAt: at(2026, 7, 12) });
+
+  const groups = store.groupedGoals();
+  const upcoming = groups.find((g) => g.group === 'upcoming');
+  assert.deepEqual(upcoming.goals.map((g) => g.text), ['Sooner', 'Later']);
+  const achieved = groups.find((g) => g.group === 'achieved');
+  assert.deepEqual(achieved.goals.map((g) => g.text), ['Achieved second', 'Achieved first']);
+});
+
+await test('a malformed goal is skipped on load, not fatal', () => {
+  memory.clear();
+  localStorage.setItem('myschedule.state.v1', JSON.stringify({
+    goals: [{ text: 'Good', dueDate: at(2026, 7, 19) }, { text: 'no date' }, null],
+  }));
+  const store = new S.Store();
+  assert.equal(store.state.goals.length, 1);
+});
+
+await test('goals survive a save and reload', () => {
+  const store = freshStore();
+  store.addGoal({ text: 'Learn Spanish', dueDate: at(2026, 9, 1) });
+  store.saveNow();
+  const reloaded = new S.Store();
+  assert.equal(reloaded.state.goals.length, 1);
+  assert.equal(reloaded.state.goals[0].text, 'Learn Spanish');
+});
+
+await test('erasing everything clears goals too', () => {
+  const store = freshStore();
+  store.addGoal({ text: 'Learn Spanish', dueDate: at(2026, 9, 1) });
+  store.eraseEverything();
+  assert.equal(store.state.goals.length, 0);
+});
+
+await test('a backup replaces goals wholesale; a merge adds only the new ones', () => {
+  const store = freshStore();
+  const kept = store.addGoal({ text: 'Kept', dueDate: at(2026, 9, 1) });
+  const backup = store.exportJSON();
+
+  store.addGoal({ text: 'Written after the backup', dueDate: at(2026, 10, 1) });
+  store.importJSON(backup, true);
+  assert.deepEqual(store.state.goals.map((g) => g.id), [kept.id], 'replace wipes what came after the backup');
+
+  const other = freshStore();
+  other.addGoal({ text: 'Already here', dueDate: at(2026, 11, 1) });
+  other.importJSON(backup, false);
+  assert.equal(other.state.goals.length, 2, 'merge keeps both, does not duplicate the shared one');
+});
+
+await test('goals never appear on the schedule', () => {
+  // Structurally impossible — entriesOn() never reads state.goals — but
+  // worth asserting directly, the same way the daily-reminder guard is.
+  const store = freshStore();
+  store.addGoal({ text: 'Learn Spanish', dueDate: at(2026, 7, 19) });
+  const state = { ...store.state, settings: { ...S.DEFAULT_SETTINGS }, now: at(2026, 7, 19, 9, 0) };
+  assert.equal(E.entriesOn(state, at(2026, 7, 19)).length, 0);
+});
+
+await test('goals never appear in the calendar export', () => {
+  const store = freshStore();
+  store.addGoal({ text: 'Learn Spanish', dueDate: at(2026, 7, 19) });
+  const batch = I.exportable(store.state, false);
+  assert.equal(batch.temporary.length + batch.permanent.length, 0);
+});
+
+// ---------------------------------------------------------------------------
 // PIN hashing (crypto.js)
 // ---------------------------------------------------------------------------
 

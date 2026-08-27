@@ -357,6 +357,36 @@ export function dailyOffsetLabel(days) {
   }
 }
 
+/** How far out a new goal's target date can be aimed, in days. */
+export const GOAL_OFFSETS = [7, 14, 30, 90, 180, 365];
+
+export function goalOffsetLabel(days) {
+  switch (days) {
+    case 7: return '1 week';
+    case 14: return '2 weeks';
+    case 30: return '1 month';
+    case 90: return '3 months';
+    case 180: return '6 months';
+    case 365: return '1 year';
+    default: return days === 1 ? '1 day' : `${days} days`;
+  }
+}
+
+/**
+ * A goal: something to work toward by a date, kept entirely apart from the
+ * schedule. No time of day, no reminders, no recurrence — just what and by
+ * when. `achievedAt` is the only kind of "done" a goal has.
+ */
+export function makeGoal(fields) {
+  return {
+    id: fields.id || newId(),
+    text: fields.text,
+    dueDate: startOfDay(fields.dueDate || (Date.now() + 30 * DAY)),
+    createdAt: fields.createdAt || Date.now(),
+    achievedAt: fields.achievedAt || null,
+  };
+}
+
 export function makeTemporary(fields) {
   const linger = fields.linger || 'atDue';
   return {

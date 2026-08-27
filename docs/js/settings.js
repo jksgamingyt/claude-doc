@@ -384,7 +384,7 @@ export function settingsScreen(app) {
     (value) => set('showWelcomeOnLaunch', value)));
   look.appendChild(selectRow('Open to', state.settings.startTab,
     [['ask', 'Let me choose'], ['schedule', 'Schedule'], ['temporary', 'Temporary notes'],
-      ['permanent', 'Permanent notes'], ['daily', 'Daily reminders']],
+      ['permanent', 'Permanent notes'], ['daily', 'Daily reminders'], ['goals', 'Goals']],
     (value) => set('startTab', value)));
   look.appendChild(toggleRow('Offer Calendar after adding a note', null, state.settings.remindToExport,
     (value) => set('remindToExport', value)));
@@ -469,7 +469,7 @@ export function settingsScreen(app) {
       type: 'button', style: { width: '100%' },
       onclick: () => confirmSheet({
         title: 'Erase everything?',
-        message: 'Every note, both kinds, plus the archive. This cannot be undone.',
+        message: 'Every note, both kinds, plus your goals and the archive. This cannot be undone.',
         confirmLabel: 'Erase all notes',
         onConfirm: () => { store.eraseEverything(); app.render(); toast('Everything erased'); },
       }),
@@ -480,7 +480,7 @@ export function settingsScreen(app) {
   about.appendChild(h('button.rowlink', { type: 'button', onclick: () => openHowItWorks(app) },
     h('span', 'How MySchedule works'), icon('right', 14)));
   about.appendChild(h('div.pad',
-    h('div.small.faint', { text: `${state.temporary.length} temporary · ${state.permanent.length} permanent` }),
+    h('div.small.faint', { text: `${state.temporary.length} temporary · ${state.permanent.length} permanent · ${state.goals.length} goals` }),
     state.lastSweepAt && h('div.tiny.faint', { style: { marginTop: '4px' }, text: `Last tidy-up ${formatFull(state.lastSweepAt)}` })));
 
   const body = h('div.scroll',
@@ -694,6 +694,8 @@ export function openHowItWorks(app) {
         'Give one a rhythm — every day, weekdays, certain days, once a month — a time of day, and how long it holds its place. It then repeats forever. Nothing removes it but you.'),
       card('calendar', 'sky', 'The schedule',
         'Nothing is created here. Every day is assembled from the two notes sections each time you look at it, which is why the schedule can never fall out of step with what you wrote.'),
+      card('target', 'fern', 'Goals',
+        "A third, separate thing: something to work toward by a date, not a note. Goals are never assembled into the schedule and never send a reminder — just what, and by when, kept off to the side until you check it off."),
       card('cal2', 'moss', 'Why reminders go through Calendar',
         'Apple gives web apps no way to raise a notification while they are closed — there is no API for it, on any browser, on any iPhone. Sending your notes to the Calendar app sidesteps that entirely: those alarms are native, and they fire on time whether or not this app is running. Recurring notes go across as a single repeating event, so one send covers every future occurrence.'),
       card('wind', 'gold', 'What happens while the app is closed',

@@ -1,7 +1,7 @@
 // store.js — the single source of truth, and the only thing that touches storage.
 
 import {
-  DAY, startOfDay, expiryFor, makeTemporary, makePermanent, makeDaily,
+  DAY, startOfDay, expiryFor, makeTemporary, makePermanent, makeDaily, makeGoal,
 } from './model.js';
 import { signatureTemporary, signaturePermanent } from './ics.js';
 
@@ -36,6 +36,7 @@ function blankState() {
     temporary: [],
     permanent: [],
     daily: [],
+    goals: [],
     archive: [],
     exported: {},
     settings: { ...DEFAULT_SETTINGS },
@@ -72,6 +73,11 @@ function revivePermanent(raw) {
   return makePermanent(raw);
 }
 
+function reviveGoal(raw) {
+  if (!raw || typeof raw.text !== 'string' || typeof raw.dueDate !== 'number') return null;
+  return makeGoal(raw);
+}
+
 export function load() {
   const state = blankState();
   const raw = loadRaw(KEY) || loadRaw(BACKUP_KEY);
@@ -87,6 +93,9 @@ export function load() {
     state.daily = raw.daily
       .filter((item) => item && typeof item.text === 'string' && typeof item.forDate === 'number')
       .map(makeDaily);
+  }
+  if (Array.isArray(raw.goals)) {
+    state.goals = raw.goals.map(reviveGoal).filter(Boolean);
   }
   if (Array.isArray(raw.archive)) {
     state.archive = raw.archive.filter((item) => item && typeof item.title === 'string');
@@ -299,6 +308,60 @@ export class Store {
     return before - this.state.daily.length;
   }
 
+  // --- goals
+  //
+  // Deliberately apart from everything above: no due-time, no reminders, no
+  // recurrence, and never fed into engine.js or ics.js. A goal is either
+  // overdue, still open, or achieved — nothing else touches it, and nothing
+  // ever removes one but you.
+
+  addGoal(fields) {
+    const goal = makeGoal(fields);
+    this.state.goals.push(goal);
+    this.changed();
+    return goal;
+  }
+
+  updateGoal(fields) {
+    const index = this.state.goals.findIndex((g) => g.id === fields.id);
+    if (index < 0) return null;
+    const goal = makeGoal({ ...this.state.goals[index], ...fields });
+    this.state.goals[index] = goal;
+    this.changed();
+    return goal;
+  }
+
+  setGoalAchieved(id, achieved) {
+    const goal = this.state.goals.find((g) => g.id === id);
+    if (!goal) return;
+    goal.achievedAt = achieved ? Date.now() : null;
+    this.changed();
+  }
+
+  deleteGoal(id) {
+    this.state.goals = this.state.goals.filter((g) => g.id !== id);
+    this.changed();
+  }
+
+  groupedGoals() {
+    const today = startOfDay(this.state.now || Date.now());
+    const buckets = { overdue: [], upcoming: [], achieved: [] };
+
+    for (const goal of this.state.goals) {
+      if (goal.achievedAt) buckets.achieved.push(goal);
+      else if (goal.dueDate < today) buckets.overdue.push(goal);
+      else buckets.upcoming.push(goal);
+    }
+
+    buckets.overdue.sort((a, b) => a.dueDate - b.dueDate);
+    buckets.upcoming.sort((a, b) => a.dueDate - b.dueDate);
+    buckets.achieved.sort((a, b) => b.achievedAt - a.achievedAt);
+
+    return ['overdue', 'upcoming', 'achieved']
+      .filter((group) => buckets[group].length)
+      .map((group) => ({ group, goals: buckets[group] }));
+  }
+
   // --- archive
 
   restore(entry) {
@@ -422,6 +485,7 @@ export class Store {
 
     const incomingTemp = (raw.temporary || []).map(reviveTemporary).filter(Boolean);
     const incomingPerm = (raw.permanent || []).map(revivePermanent).filter(Boolean);
+    const incomingGoals = (raw.goals || []).map(reviveGoal).filter(Boolean);
 
     if (replace) {
       this.state.temporary = incomingTemp;
@@ -429,14 +493,17 @@ export class Store {
       this.state.daily = Array.isArray(raw.daily)
         ? raw.daily.filter((item) => item && typeof item.text === 'string').map(makeDaily)
         : [];
+      this.state.goals = incomingGoals;
       this.state.archive = Array.isArray(raw.archive) ? raw.archive : [];
       this.state.exported = raw.exported && typeof raw.exported === 'object' ? raw.exported : {};
       if (raw.settings) this.state.settings = { ...DEFAULT_SETTINGS, ...raw.settings };
     } else {
       const haveTemp = new Set(this.state.temporary.map((n) => n.id));
       const havePerm = new Set(this.state.permanent.map((n) => n.id));
+      const haveGoals = new Set(this.state.goals.map((g) => g.id));
       this.state.temporary.push(...incomingTemp.filter((n) => !haveTemp.has(n.id)));
       this.state.permanent.push(...incomingPerm.filter((n) => !havePerm.has(n.id)));
+      this.state.goals.push(...incomingGoals.filter((g) => !haveGoals.has(g.id)));
     }
 
     this.saveNow();
@@ -522,6 +589,12 @@ export const GROUP_LABELS = {
   thisWeek: 'This week',
   later: 'Later',
   done: 'Done',
+};
+
+export const GOAL_GROUP_LABELS = {
+  overdue: 'Past due',
+  upcoming: 'In progress',
+  achieved: 'Achieved',
 };
 
 function archiveEntry(note, kind, reason, at) {

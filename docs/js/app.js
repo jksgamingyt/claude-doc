@@ -7,7 +7,7 @@ import { startOfDay } from './model.js';
 import { isLocked, loadSession, renderLockScreen } from './lock.js';
 import {
   welcomeScreen, scheduleScreen, temporaryScreen, permanentScreen,
-  dailyScreen, dailyGreeting,
+  dailyScreen, dailyGreeting, goalsScreen,
 } from './screens.js';
 import { settingsScreen, calendarLink, openHowItWorks } from './settings.js';
 
@@ -16,6 +16,7 @@ const TABS = [
   { key: 'temporary', label: 'Temporary', icon: 'hourglass' },
   { key: 'permanent', label: 'Permanent', icon: 'leaf' },
   { key: 'daily', label: 'Daily', icon: 'sunrise' },
+  { key: 'goals', label: 'Goals', icon: 'target' },
   { key: 'settings', label: 'Settings', icon: 'gear' },
 ];
 
@@ -209,6 +210,7 @@ class App {
     if (this.tab === 'daily') screen = dailyScreen(this);
     else if (this.tab === 'temporary') screen = temporaryScreen(this);
     else if (this.tab === 'permanent') screen = permanentScreen(this);
+    else if (this.tab === 'goals') screen = goalsScreen(this);
     else if (this.tab === 'settings') screen = settingsScreen(this);
     else screen = scheduleScreen(this);
 

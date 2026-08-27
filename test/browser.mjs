@@ -210,9 +210,10 @@ await shot('welcome');
 // --- welcome -> doors -> schedule
 await tapText('Step in');
 check('doors open', await page.getByText('Temporary notes').count() > 0);
-check('every section has a door', await page.locator('.door').count() === 4,
+check('every section has a door', await page.locator('.door').count() === 5,
   `${await page.locator('.door').count()} doors`);
 check('daily reminders is one of them', await page.getByText('Daily reminders').count() > 0);
+check('and goals too', await page.getByText('Goals').count() > 0);
 await shot('doors');
 
 await tapText('The schedule');
@@ -666,6 +667,8 @@ check('with the calendar route unavailable it falls back to saving a real file',
 
 await tapText('How MySchedule works');
 check('explainer opens', await page.getByText('Two kinds of note, one schedule').count() > 0);
+check('and explains goals as a third, separate thing',
+  await page.getByText('A third, separate thing').count() > 0);
 await shot('how-it-works');
 await page.locator('.sheet-head .primary').click();
 await page.waitForTimeout(200);
@@ -755,8 +758,8 @@ await page.waitForTimeout(250);
 
 // --- daily reminders: leave one tonight, be greeted on its morning
 check('there is a Daily tab', await page.getByRole('tab', { name: /Daily/ }).count() > 0);
-check('the tab bar carries all five sections',
-  await page.locator('.tabbar button').count() === 5);
+check('the tab bar carries all six sections',
+  await page.locator('.tabbar button').count() === 6);
 
 await page.getByRole('tab', { name: /Daily/ }).click();
 await page.waitForTimeout(250);
@@ -878,6 +881,135 @@ check('it does not greet you twice', await page.locator('.greeting').count() ===
 check('the daily door lands on the daily section',
   await page.getByText('Left for the morning').count() > 0);
 
+// --- Goals: a third, separate thing — never the schedule, never a reminder
+await page.getByRole('tab', { name: /Goals/ }).click();
+await page.waitForTimeout(250);
+check('the goals section explains itself when empty',
+  await page.getByText('No goals yet').count() > 0);
+
+const goalComposer = page.locator('.composer input');
+await goalComposer.fill('Learn Spanish');
+await goalComposer.press('Enter');
+await page.waitForTimeout(320);
+check('writing one asks by when', await page.getByText('By when?').count() > 0);
+
+const typingInGoal = await typingKeepsFocus('.sheet-body input.textinput');
+check('typing in the goal sheet keeps the keyboard up',
+  typingInGoal.focused === true && typingInGoal.attached === true,
+  JSON.stringify(typingInGoal));
+await page.locator('.sheet-body input.textinput').first().fill('Learn Spanish');
+await page.waitForTimeout(150);
+check('it defaults to a month out',
+  (await sliderReadout('Target')) === '1 month', String(await sliderReadout('Target')));
+await shot('goal-sheet');
+
+// Aim it three months out instead.
+await setSlider('Target', 3); // GOAL_OFFSETS index 3 == 90 days == "3 months"
+check('the target slider reads back what it selected',
+  (await sliderReadout('Target')) === '3 months', String(await sliderReadout('Target')));
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(400);
+check('the goal is listed as in progress',
+  await page.getByText('Learn Spanish').count() > 0
+  && await page.getByText('In progress').count() > 0);
+await shot('goal-list');
+
+// --- editing one: the same keyboard-safety discipline as every other sheet
+// with a text field in this app.
+await page.locator('.note', { hasText: 'Learn Spanish' }).first().click();
+await page.waitForTimeout(360);
+check('tapping a goal opens it for editing',
+  (await page.locator('.sheet-head .mid strong').textContent()) === 'Edit goal');
+
+const goalEditField = '.sheet-body input.textinput';
+const typingInGoalEdit = await typingKeepsFocus(goalEditField);
+check('editing: typing keeps the keyboard up',
+  typingInGoalEdit.focused === true && typingInGoalEdit.attached === true,
+  JSON.stringify(typingInGoalEdit));
+
+await watchForDetach(goalEditField);
+await setSlider('Target', 4); // 6 months
+const goalEditReport = await detachReport(goalEditField);
+check('editing: the field is never detached when the sheet re-renders',
+  goalEditReport.detached === false, JSON.stringify(goalEditReport));
+check('editing: and it still holds focus afterwards',
+  goalEditReport.stillFocused === true, JSON.stringify(goalEditReport));
+check('editing: and keeps what was typed',
+  goalEditReport.value === 'Learn Spanishab', String(goalEditReport.value));
+
+await page.keyboard.type('!');
+await page.waitForTimeout(160);
+const keptTypingGoal = await page.evaluate((sel) => document.querySelector(sel).value, goalEditField);
+check('editing: typing continues without re-tapping the field',
+  keptTypingGoal === 'Learn Spanishab!', keptTypingGoal);
+
+// Put it back the way the later checks expect, and save.
+await page.locator(goalEditField).first().fill('Learn Spanish');
+await page.waitForTimeout(120);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(420);
+check('editing a goal saves in place rather than duplicating',
+  await page.locator('.note').count() === 1, `${await page.locator('.note').count()} rows`);
+
+// --- marking one achieved, and back
+await page.locator('.note .check').first().click();
+await page.waitForTimeout(250);
+check('checking it off moves it to Achieved',
+  await page.getByText('Achieved').count() > 0
+  && await page.getByText('In progress').count() === 0);
+await page.locator('.note .check').first().click();
+await page.waitForTimeout(250);
+check('unchecking it puts it back',
+  await page.getByText('In progress').count() > 0
+  && await page.getByText('Achieved').count() === 0);
+
+// --- a goal whose date has already passed lands in Past due, not In progress
+const goalComposer2 = page.locator('.composer input');
+await goalComposer2.fill('Overdue by design');
+await goalComposer2.press('Enter');
+await page.waitForTimeout(320);
+await page.evaluate(() => {
+  const input = document.querySelector('.sheet-body input[type="date"]');
+  const d = new Date();
+  d.setDate(d.getDate() - 10);
+  input.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+});
+await page.waitForTimeout(200);
+check('picking a past date warns it will start out overdue',
+  await page.getByText('Already past').count() > 0);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(400);
+check('it lands under Past due', await page.getByText('Past due').count() > 0);
+
+// --- goals never leak onto the schedule
+const goalDueToday = await page.evaluate(() => {
+  const app = window.myschedule;
+  const g = app.store.addGoal({ text: 'Should never show up here', dueDate: app.store.state.now });
+  return g.id;
+});
+await page.getByRole('tab', { name: /Schedule/ }).click();
+await page.waitForTimeout(300);
+check("a goal due today does not appear on today's schedule",
+  await page.getByText('Should never show up here').count() === 0);
+await page.evaluate((id) => window.myschedule.store.deleteGoal(id), goalDueToday);
+await page.getByRole('tab', { name: /Goals/ }).click();
+await page.waitForTimeout(250);
+
+// --- deleting one
+await page.locator('.note', { hasText: 'Overdue by design' }).first().click();
+await page.waitForTimeout(300);
+await page.locator('.sheet-foot .btn.soft').click(); // the trash icon, only present when editing
+await page.waitForTimeout(250);
+check('deleting asks first', await page.getByText('Remove this goal?').count() > 0);
+// Not tapText('Remove') — the confirm sheet's own title is "Remove this
+// goal?", which a substring match finds before the button and taps
+// instead, leaving the sheet open to block everything after it.
+await page.locator('.sheet-foot .btn.clay').click();
+await page.waitForTimeout(300);
+check('and then it is actually gone',
+  await page.getByText('Overdue by design').count() === 0);
+
 // --- App Lock: end to end, including the wrong-PIN and lockout paths
 await page.getByRole('tab', { name: /Settings/ }).click();
 await page.waitForTimeout(300);
@@ -988,7 +1120,8 @@ await page.evaluate(() => {
   localStorage.setItem('myschedule.lockSession.v1', JSON.stringify(raw));
 });
 const notesBeforeReset = await page.evaluate(() => window.myschedule.store.state.temporary.length
-  + window.myschedule.store.state.permanent.length + window.myschedule.store.state.daily.length);
+  + window.myschedule.store.state.permanent.length + window.myschedule.store.state.daily.length
+  + window.myschedule.store.state.goals.length);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(500);
 check('locked again once the remembered window is cleared',
@@ -1002,7 +1135,8 @@ check('resetting the PIN unlocks straight to the welcome screen',
   await page.locator('.lock-screen').count() === 0 && await page.getByText('MySchedule').count() > 0);
 
 const notesAfterReset = await page.evaluate(() => window.myschedule.store.state.temporary.length
-  + window.myschedule.store.state.permanent.length + window.myschedule.store.state.daily.length);
+  + window.myschedule.store.state.permanent.length + window.myschedule.store.state.daily.length
+  + window.myschedule.store.state.goals.length);
 check('resetting the PIN does not touch any notes',
   notesAfterReset === notesBeforeReset && notesBeforeReset > 0,
   `${notesBeforeReset} -> ${notesAfterReset}`);
@@ -1020,6 +1154,10 @@ await page.getByRole('tab', { name: /Settings/ }).click();
 await page.waitForTimeout(300);
 check('the settings screen explains the no-server approach',
   await page.getByText('Moving between devices').count() > 0);
+check('"Open to" offers Goals as a start tab',
+  await page.locator('select option', { hasText: 'Goals' }).count() > 0);
+check('the about section counts goals too',
+  await page.getByText(/\d+ goals/).count() > 0);
 
 await page.getByText('Copy for iCloud').click();
 await page.waitForTimeout(300);
@@ -1027,7 +1165,8 @@ const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
 let clipboardData;
 try { clipboardData = JSON.parse(clipboardText); } catch (error) { clipboardData = null; }
 check('copying puts real backup JSON on the clipboard',
-  clipboardData && Array.isArray(clipboardData.temporary) && Array.isArray(clipboardData.daily),
+  clipboardData && Array.isArray(clipboardData.temporary) && Array.isArray(clipboardData.daily)
+  && Array.isArray(clipboardData.goals),
   clipboardText.slice(0, 80));
 
 // Wipe everything, then prove the clipboard alone can bring it back —
@@ -1036,6 +1175,7 @@ const beforeWipe = await page.evaluate(() => ({
   temporary: window.myschedule.store.state.temporary.length,
   permanent: window.myschedule.store.state.permanent.length,
   daily: window.myschedule.store.state.daily.length,
+  goals: window.myschedule.store.state.goals.length,
 }));
 await page.evaluate(() => window.myschedule.store.eraseEverything());
 await page.waitForTimeout(200);
@@ -1053,6 +1193,7 @@ const afterRestore = await page.evaluate(() => ({
   temporary: window.myschedule.store.state.temporary.length,
   permanent: window.myschedule.store.state.permanent.length,
   daily: window.myschedule.store.state.daily.length,
+  goals: window.myschedule.store.state.goals.length,
 }));
 check('copy then paste round-trips every note back exactly',
   JSON.stringify(afterRestore) === JSON.stringify(beforeWipe),
