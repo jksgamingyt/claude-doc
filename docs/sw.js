@@ -5,7 +5,7 @@
 // next time, which means a new version is picked up on the second launch after
 // a deploy rather than needing a hard reload.
 
-const VERSION = 'myschedule-v11';
+const VERSION = 'myschedule-v12';
 
 // The calendar hand-off lives in its own cache, deliberately outside VERSION
 // so a deploy never wipes a feed the user is about to open. See the note on

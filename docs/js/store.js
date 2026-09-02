@@ -177,7 +177,7 @@ export class Store {
     const index = this.state.temporary.findIndex((n) => n.id === fields.id);
     if (index < 0) return null;
     const note = makeTemporary({ ...this.state.temporary[index], ...fields });
-    note.expiresAt = expiryFor(note.due, note.linger);
+    note.expiresAt = expiryFor(note.due, note.linger, note.lingerDays);
     this.state.temporary[index] = note;
     this.changed();
     return note;

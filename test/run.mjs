@@ -140,6 +140,69 @@ await test('endOfDay on a late-evening deadline still lands the same night', () 
 });
 
 // ---------------------------------------------------------------------------
+// Custom-day linger — the 1-to-365-day scroller alongside the seven presets
+// ---------------------------------------------------------------------------
+
+await test('a custom linger adds that many days to the deadline', () => {
+  const due = at(2026, 7, 20, 18, 0);
+  assert.equal(M.expiryFor(due, M.CUSTOM_LINGER, 10), due + 10 * M.DAY);
+  assert.equal(M.expiryFor(due, M.CUSTOM_LINGER, 1), due + M.DAY);
+  assert.equal(M.expiryFor(due, M.CUSTOM_LINGER, 365), due + 365 * M.DAY);
+});
+
+await test('a custom linger day count is clamped to 1-365', () => {
+  assert.equal(M.clampLingerDays(0), 1);
+  assert.equal(M.clampLingerDays(-5), 1);
+  assert.equal(M.clampLingerDays(366), 365);
+  assert.equal(M.clampLingerDays(9999), 365);
+  assert.equal(M.clampLingerDays(40.6), 41, 'rounds rather than truncates');
+  assert.equal(M.clampLingerDays(undefined), 1, 'a missing value is not fatal');
+  assert.equal(M.clampLingerDays(NaN), 1);
+});
+
+await test('a temporary note with a custom linger clamps and applies it', () => {
+  const note = M.makeTemporary({
+    title: 'Long-lived', due: at(2026, 7, 20, 18, 0), linger: M.CUSTOM_LINGER, lingerDays: 500,
+  });
+  assert.equal(note.lingerDays, 365, 'clamped on the way in');
+  assert.equal(note.expiresAt, at(2026, 7, 20, 18, 0) + 365 * M.DAY);
+});
+
+await test('an ordinary linger ignores whatever lingerDays happens to hold', () => {
+  const note = M.makeTemporary({
+    title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'oneDay', lingerDays: 200,
+  });
+  assert.equal(note.expiresAt, at(2026, 7, 21, 18, 0), 'still the plain +1 day rule');
+});
+
+await test('editing a note into a custom linger recomputes its expiry', () => {
+  const store = freshStore();
+  const note = store.addTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'atDue' });
+  assert.equal(note.expiresAt, at(2026, 7, 20, 18, 0));
+  const updated = store.updateTemporary({ id: note.id, linger: M.CUSTOM_LINGER, lingerDays: 45 });
+  assert.equal(updated.expiresAt, at(2026, 7, 20, 18, 0) + 45 * M.DAY);
+});
+
+await test('a custom-linger note carries the full 1-to-365-day range into the schedule', () => {
+  const note = M.makeTemporary({
+    title: 'Long haul', due: at(2026, 7, 20, 18, 0), linger: M.CUSTOM_LINGER, lingerDays: 200,
+  });
+  const state = stateWith([note]);
+  assert.equal(E.entriesOn(state, at(2026, 7, 20)).length, 1, 'shows on the due day');
+  assert.equal(E.entriesOn(state, at(2026, 12, 1)).length, 1, 'still lingering months later');
+});
+
+await test('a custom linger survives a save and reload', () => {
+  const store = freshStore();
+  store.addTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: M.CUSTOM_LINGER, lingerDays: 90 });
+  store.saveNow();
+  const reloaded = new S.Store();
+  assert.equal(reloaded.state.temporary[0].linger, M.CUSTOM_LINGER);
+  assert.equal(reloaded.state.temporary[0].lingerDays, 90);
+  assert.equal(reloaded.state.temporary[0].expiresAt, at(2026, 7, 20, 18, 0) + 90 * M.DAY);
+});
+
+// ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
 

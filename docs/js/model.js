@@ -93,8 +93,27 @@ export const LINGERS = {
 
 export const LINGER_KEYS = Object.keys(LINGERS);
 
-export function expiryFor(dueMs, linger) {
-  const due = new Date(dueMs);
+// A custom day count, on top of the seven fixed presets above. Kept as its
+// own key rather than folded into LINGERS/LINGER_KEYS: those two are also
+// what populates the "Clears by default" setting, and a default of "custom"
+// would need a companion default day count that nothing asked for. The
+// wizard alone offers it, as CUSTOM_LINGER appended to its own local copy of
+// the options.
+export const CUSTOM_LINGER = 'customDays';
+export const MIN_LINGER_DAYS = 1;
+export const MAX_LINGER_DAYS = 365;
+
+export function clampLingerDays(days) {
+  const n = Math.round(Number(days));
+  if (!Number.isFinite(n)) return MIN_LINGER_DAYS;
+  return Math.min(MAX_LINGER_DAYS, Math.max(MIN_LINGER_DAYS, n));
+}
+
+export function formatLingerDays(days) {
+  return days === 1 ? '1 day' : `${days} days`;
+}
+
+export function expiryFor(dueMs, linger, lingerDays) {
   switch (linger) {
     case 'oneHour':   return dueMs + 3600000;
     case 'sixHours':  return dueMs + 6 * 3600000;
@@ -102,6 +121,7 @@ export function expiryFor(dueMs, linger) {
     case 'oneDay':    return dueMs + DAY;
     case 'threeDays': return dueMs + 3 * DAY;
     case 'oneWeek':   return dueMs + 7 * DAY;
+    case CUSTOM_LINGER: return dueMs + clampLingerDays(lingerDays) * DAY;
     case 'atDue':
     default:          return dueMs;
   }
@@ -389,6 +409,7 @@ export function makeGoal(fields) {
 
 export function makeTemporary(fields) {
   const linger = fields.linger || 'atDue';
+  const lingerDays = clampLingerDays(fields.lingerDays == null ? 30 : fields.lingerDays);
   return {
     id: fields.id || newId(),
     title: fields.title,
@@ -396,7 +417,8 @@ export function makeTemporary(fields) {
     due: fields.due,
     isAllDay: !!fields.isAllDay,
     linger,
-    expiresAt: expiryFor(fields.due, linger),
+    lingerDays,
+    expiresAt: expiryFor(fields.due, linger, lingerDays),
     reminders: (fields.reminders || []).slice().sort((a, b) => b - a),
     notifyOnExpiry: fields.notifyOnExpiry !== false,
     tag: fields.tag || 'clay',

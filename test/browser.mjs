@@ -409,6 +409,80 @@ check('sheet closes after saving', await page.locator('.sheet').count() === 0);
 check('the note is listed', await page.getByText('Pay the rent').count() > 0);
 await shot('temporary-list');
 
+// --- a custom day-range linger: 1 to 365 days, on top of the seven presets
+const composerCustom = page.locator('.composer input');
+await composerCustom.fill('Long project');
+await composerCustom.press('Enter');
+await page.waitForTimeout(300);
+await page.locator('.sheet-foot .btn:not(.soft)').click(); // Next, off the default day/time
+await page.waitForTimeout(220);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(220);
+check('lands on the expiry step', await page.getByText('When should it disappear?').count() > 0);
+
+check('no day-count scroller until Custom is chosen',
+  (await sliderReadout('Days')) === null);
+
+// LINGER_OPTIONS is the 7 presets plus "customDays" appended — index 7.
+await setSlider('Clears', 7);
+check('choosing Custom reveals a day-count scroller, defaulted to 30',
+  (await sliderReadout('Days')) === '30 days', String(await sliderReadout('Days')));
+await shot('wizard-custom-linger');
+
+// A landmark stop first — commits immediately, same as any other slider here.
+await setSlider('Days', 90);
+check('the day-count slider reads back a landmark stop',
+  (await sliderReadout('Days')) === '90 days', String(await sliderReadout('Days')));
+
+// Then a genuinely custom, off-grid day count — the same "pops up, holds for
+// a beat" behaviour continuousSlider() already gives Time of day / Holds for.
+await setSlider('Days', 47);
+check('and a fully custom day count, not just the seven landmark stops',
+  (await sliderReadout('Days')) === '47 days', String(await sliderReadout('Days')));
+check('with the same "Custom" readout the other continuous sliders use',
+  (await customBubble('Days')).text.includes('47 days'), JSON.stringify(await customBubble('Days')));
+
+// The far ends of the range actually work, not just the middle.
+await setSlider('Days', 1);
+check('the low end of the range (1 day) is reachable',
+  (await sliderReadout('Days')) === '1 day', String(await sliderReadout('Days')));
+await setSlider('Days', 365);
+check('and the high end (365 days) is too',
+  (await sliderReadout('Days')) === '365 days', String(await sliderReadout('Days')));
+
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(400);
+check('a custom-linger note saves and is listed',
+  await page.getByText('Long project').count() > 0);
+
+// --- editing it back opens with Custom pre-selected and the right day count
+await page.locator('.note', { hasText: 'Long project' }).first().click();
+await page.waitForTimeout(300);
+await page.getByText('Edit this note').click();
+await page.waitForTimeout(300);
+await page.locator('.sheet-foot .btn:not(.soft)').click(); // day
+await page.waitForTimeout(220);
+await page.locator('.sheet-foot .btn:not(.soft)').click(); // time
+await page.waitForTimeout(220);
+check('editing shows Custom already selected',
+  (await sliderReadout('Clears')) === 'Custom', String(await sliderReadout('Clears')));
+check('and the day count it was actually saved with — not the 30-day default',
+  (await sliderReadout('Days')) === '365 days', String(await sliderReadout('Days')));
+await page.getByText('Cancel').first().click(); // leave it as saved, no edits made
+await page.waitForTimeout(300);
+
+// Clean up — later checks in this file assume exactly one temporary note.
+await page.locator('.note', { hasText: 'Long project' }).first().click();
+await page.waitForTimeout(300);
+await page.getByText('Remove').click();
+await page.waitForTimeout(250);
+// Not tapText('Remove') — the confirm sheet's own title is "Remove this
+// note?", which a substring match finds before the button and taps instead.
+await page.locator('.sheet-foot .btn.clay').click();
+await page.waitForTimeout(300);
+check('the custom-linger note is cleaned up again',
+  await page.getByText('Long project').count() === 0);
+
 // --- add a permanent note
 await page.getByRole('tab', { name: /Permanent/ }).click();
 await page.waitForTimeout(200);

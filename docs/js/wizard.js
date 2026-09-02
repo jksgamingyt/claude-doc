@@ -7,6 +7,7 @@
 
 import {
   TAGS, TAG_KEYS, LINGERS, LINGER_KEYS, RECURRENCE_KINDS,
+  CUSTOM_LINGER, MIN_LINGER_DAYS, MAX_LINGER_DAYS, formatLingerDays,
   NUDGE_OPTIONS, nudgeLabel, splitReminders, joinNudges,
   leadShort, leadLong, expiryFor, defaultRecurrence, recurrenceSummary,
   formatFull, formatMinutes, formatMonthDay, formatDayHeadline, formatDuration,
@@ -63,6 +64,15 @@ const TIME_STEP = 5;
 
 const DURATIONS = [15, 30, 60, 90, 120, 180, 240, ALL_DAY_MINUTES];
 const DURATION_STEP = 5;
+
+// The seven fixed lingers above, plus a free 1-to-365-day scroller for
+// anything they don't cover. Landmark stops are just visual reference points
+// on that scroller — every one of the 365 values is a real, pickable option,
+// so the "Custom" readout pops up for nearly all of them, which is exactly
+// what it's for.
+const LINGER_OPTIONS = [...LINGER_KEYS, CUSTOM_LINGER];
+const LINGER_DAY_STOPS = [1, 7, 14, 30, 90, 180, 365];
+const lingerOptionLabel = (key) => (key === CUSTOM_LINGER ? 'Custom' : LINGERS[key].short);
 
 /** Shared by every "time of day" slider: any minute, not just the shortcuts. */
 function timeOfDaySlider({ value, tone, onInput, onCommit }) {
@@ -271,6 +281,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       minutes: minutesOfDay(editing.due),
       isAllDay: editing.isAllDay,
       linger: editing.linger,
+      lingerDays: editing.lingerDays || 30,
       reminders: editing.reminders.slice(),
       notifyOnExpiry: editing.notifyOnExpiry,
       ...splitReminders(editing.reminders),
@@ -289,6 +300,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       minutes: defaultMinutes,
       isAllDay: false,
       linger: settings.defaultLinger,
+      lingerDays: 30,
       reminders: settings.defaultTemporaryReminders.slice(),
       notifyOnExpiry: settings.notifyOnExpiry,
       ...splitReminders(settings.defaultTemporaryReminders),
@@ -367,16 +379,31 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
     {
       render(d, refresh) {
         const lingerChips = optionSlider({
-          options: LINGER_KEYS,
+          options: LINGER_OPTIONS,
           value: d.linger,
-          format: (key) => LINGERS[key].short,
+          format: lingerOptionLabel,
           label: 'Clears',
           tone: 'clay',
           onInput: (key) => { d.linger = key; },
           onCommit: refresh,
         });
 
-        const expiry = expiryFor(dueOf(d), d.linger);
+        const customDaySlider = d.linger === CUSTOM_LINGER
+          ? continuousSlider({
+            min: MIN_LINGER_DAYS,
+            max: MAX_LINGER_DAYS,
+            step: 1,
+            stops: LINGER_DAY_STOPS,
+            value: d.lingerDays,
+            format: formatLingerDays,
+            label: 'Days',
+            tone: 'clay',
+            onInput: (days) => { d.lingerDays = days; },
+            onCommit: refresh,
+          })
+          : null;
+
+        const expiry = expiryFor(dueOf(d), d.linger, d.lingerDays);
         const expiryText = d.linger === 'atDue'
           ? "Clears the moment it's due."
           : `Clears ${formatFull(expiry)}.`;
@@ -384,7 +411,8 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
         return h('div',
           fieldBlock('When should it disappear?',
             'Once this passes, the note leaves your schedule on its own. Nothing is lost — it moves to Recently cleared.',
-            lingerChips),
+            lingerChips,
+            customDaySlider && h('div', { style: { marginTop: '14px' } }, customDaySlider)),
           notificationGate(d, refresh, 'clay', [
             h('div.settings-group', { style: { marginTop: '2px' } },
               toggleRow('Tell me when it expires',
@@ -416,6 +444,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
         due: dueOf(d),
         isAllDay: d.isAllDay,
         linger: d.linger,
+        lingerDays: d.lingerDays,
         reminders: d.notify ? joinNudges(d.nudgeA, d.nudgeB) : [],
         notifyOnExpiry: d.notify ? d.notifyOnExpiry : false,
         tag: d.tag,
