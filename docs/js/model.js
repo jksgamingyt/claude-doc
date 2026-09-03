@@ -93,27 +93,7 @@ export const LINGERS = {
 
 export const LINGER_KEYS = Object.keys(LINGERS);
 
-// A custom day count, on top of the seven fixed presets above. Kept as its
-// own key rather than folded into LINGERS/LINGER_KEYS: those two are also
-// what populates the "Clears by default" setting, and a default of "custom"
-// would need a companion default day count that nothing asked for. The
-// wizard alone offers it, as CUSTOM_LINGER appended to its own local copy of
-// the options.
-export const CUSTOM_LINGER = 'customDays';
-export const MIN_LINGER_DAYS = 1;
-export const MAX_LINGER_DAYS = 365;
-
-export function clampLingerDays(days) {
-  const n = Math.round(Number(days));
-  if (!Number.isFinite(n)) return MIN_LINGER_DAYS;
-  return Math.min(MAX_LINGER_DAYS, Math.max(MIN_LINGER_DAYS, n));
-}
-
-export function formatLingerDays(days) {
-  return days === 1 ? '1 day' : `${days} days`;
-}
-
-export function expiryFor(dueMs, linger, lingerDays) {
+export function expiryFor(dueMs, linger) {
   switch (linger) {
     case 'oneHour':   return dueMs + 3600000;
     case 'sixHours':  return dueMs + 6 * 3600000;
@@ -121,10 +101,29 @@ export function expiryFor(dueMs, linger, lingerDays) {
     case 'oneDay':    return dueMs + DAY;
     case 'threeDays': return dueMs + 3 * DAY;
     case 'oneWeek':   return dueMs + 7 * DAY;
-    case CUSTOM_LINGER: return dueMs + clampLingerDays(lingerDays) * DAY;
     case 'atDue':
     default:          return dueMs;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Repeat range: a temporary note spanning several days rather than just one
+// ---------------------------------------------------------------------------
+//
+// Separate from — and, when set, standing in for — the linger presets above.
+// A due date with no repeatUntil behaves exactly as it always has: on the
+// schedule for its one day, then gone per the linger question. Giving it a
+// repeatUntil instead puts it on the schedule every day from its due day
+// through that end date inclusive (entriesOn() in engine.js already renders
+// any multi-day span this way — a "carried-over day" — so nothing there
+// needed to change, only where the end of the span comes from), and it
+// clears for good the day after.
+export const MAX_REPEAT_DAYS = 365;
+
+/** A start-of-day timestamp, clamped to sit within [due day, due day + 365]. */
+export function clampRepeatUntil(repeatUntil, dueMs) {
+  const dueDay = startOfDay(dueMs);
+  return Math.min(Math.max(startOfDay(repeatUntil), dueDay), dueDay + MAX_REPEAT_DAYS * DAY);
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +408,7 @@ export function makeGoal(fields) {
 
 export function makeTemporary(fields) {
   const linger = fields.linger || 'atDue';
-  const lingerDays = clampLingerDays(fields.lingerDays == null ? 30 : fields.lingerDays);
+  const repeatUntil = fields.repeatUntil != null ? clampRepeatUntil(fields.repeatUntil, fields.due) : null;
   return {
     id: fields.id || newId(),
     title: fields.title,
@@ -417,8 +416,11 @@ export function makeTemporary(fields) {
     due: fields.due,
     isAllDay: !!fields.isAllDay,
     linger,
-    lingerDays,
-    expiresAt: expiryFor(fields.due, linger, lingerDays),
+    repeatUntil,
+    // A repeat range supersedes the linger question entirely: the note
+    // clears the day after its last occurrence, not some interval after its
+    // first one.
+    expiresAt: repeatUntil != null ? repeatUntil + DAY : expiryFor(fields.due, linger),
     reminders: (fields.reminders || []).slice().sort((a, b) => b - a),
     notifyOnExpiry: fields.notifyOnExpiry !== false,
     tag: fields.tag || 'clay',

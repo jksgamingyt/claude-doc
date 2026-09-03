@@ -344,8 +344,12 @@ export function openInspector(app, entry) {
     facts.appendChild(fact('clock', 'Time', rangeLabel(entry)));
 
     if (isTemporary) {
-      facts.appendChild(fact('wind', 'Clears',
-        note.linger === 'atDue' ? "The moment it's due" : formatFull(note.expiresAt)));
+      if (note.repeatUntil) {
+        facts.appendChild(fact('repeat', 'Repeats', `Through ${formatDayHeadline(note.repeatUntil)}`));
+      } else {
+        facts.appendChild(fact('wind', 'Clears',
+          note.linger === 'atDue' ? "The moment it's due" : formatFull(note.expiresAt)));
+      }
     } else {
       facts.appendChild(fact('repeat', 'Repeats', recurrenceSummary(note.recurrence)));
       facts.appendChild(fact('hourglass', 'Holds', formatDuration(note.durationMinutes)));
@@ -502,7 +506,9 @@ function temporaryRow(app, note) {
     h('div.meta',
       h('span.tiny.faint', icon(note.reminders.length ? 'bell' : 'bellOff', 11), ' ',
         note.reminders.length ? note.reminders.map(leadShort).join(' · ') : 'No reminders'),
-      h('span.tiny.faint', icon('wind', 11), ' ', `Clears ${dayName(note.expiresAt, now)}`))),
+      note.repeatUntil
+        ? h('span.tiny.faint', icon('repeat', 11), ' ', `Repeats through ${dayName(note.repeatUntil, now)}`)
+        : h('span.tiny.faint', icon('wind', 11), ' ', `Clears ${dayName(note.expiresAt, now)}`))),
     check,
   );
 }

@@ -139,19 +139,23 @@ holds — each one is a single track you slide, with the choice read out above i
 The exact date and time pickers are still there underneath for anything
 off-grid.
 
-**The sliders that are actual clock times or day counts — what time of day,
-how long it holds — are a real continuum, not a handful of fixed stops.**
-Drag between two presets (3pm and 6pm, say) and it lands exactly on 4pm
-rather than snapping to whichever is nearer; a small "Custom" readout
-confirms the exact value right over the thumb while you're setting it.
-Letting go doesn't slam the screen to match — the readout holds for a couple
-of seconds after you stop moving, then fades out as the rest of the screen
-catches up, so there's always a beat to see exactly what got set. A temporary
-note's **Clears** step gets the same treatment: past the seven fixed lingers
-(on time, +1 hour, end of day, +1 week, and so on) sits an eighth option,
-**Custom**, which opens a 1-to-365-day scroller for anything in between —
-"clears in 47 days" is a real, directly-settable answer, not something you
-have to fake with the nearest preset.
+**The two sliders that are actual clock times — what time of day, how long it
+holds — are a real continuum, not six fixed stops.** Drag between two presets
+(3pm and 6pm, say) and it lands exactly on 4pm rather than snapping to
+whichever is nearer; a small "Custom" readout confirms the exact value right
+over the thumb while you're setting it. Letting go doesn't slam the screen to
+match — the readout holds for a couple of seconds after you stop moving, then
+fades out as the rest of the screen catches up, so there's always a beat to
+see exactly what got set.
+
+**A temporary note can repeat across several days instead of just one.**
+Answer "Yes, repeat it" on the **Clears** step and the seven fixed lingers
+(on time, +1 hour, end of day, +1 week, and so on) are replaced by a start
+date — already fixed, from the day you chose earlier — and an end date you
+pick. It then appears on the schedule every day in between, and clears for
+good the day after. No scroller for this one: two plain date fields, because
+a calendar picker is the natural way to answer "until when," not a count of
+days to drag through.
 
 **Every note is asked whether it should notify you at all.** Answer no and the
 note is silent: it still sits on your schedule and still goes to Calendar, it
@@ -319,8 +323,8 @@ MySchedule/               the native SwiftUI version (needs a Mac)
 MySchedule.xcodeproj/
 
 test/
-  run.mjs                 94 logic tests — recurrence, expiry, sweep, ICS, goals
-  browser.mjs             169 checks driving the real app in a real browser
+  run.mjs                 96 logic tests — recurrence, expiry, sweep, ICS, goals
+  browser.mjs             177 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
 ```
@@ -345,19 +349,22 @@ npm run shots        # browser suite + screenshots of every screen
 
 `test/run.mjs` covers the parts worth being sure about: recurrence across
 daylight-saving boundaries, the last-day-of-a-short-month fallback, expiry and
-lingering — including the custom 1-to-365-day linger and its clamping —
-the sweep, lossy loading of a corrupt record, silent notes staying
-silent everywhere, a daily reminder written at 11:59pm waiting until the next
-morning, goals grouping into past due / in progress / achieved and staying out
-of both the schedule and the calendar export, and the generated calendar file
-down to its line endings and escaping.
+lingering, a repeat range appearing on every day it spans (not just the first
+and last) and clamping to a sensible end date, the sweep, lossy loading of a
+corrupt record, silent notes staying silent everywhere, a daily reminder
+written at 11:59pm waiting until the next morning, goals grouping into past
+due / in progress / achieved and staying out of both the schedule and the
+calendar export, and the generated calendar file down to its line endings
+and escaping.
 
 `test/browser.mjs` drives the actual app in Chromium at iPhone dimensions —
 walking both wizards end to end, saving a note as silent and re-opening it to
-confirm the answer survives the round trip, leaving a daily reminder and
-re-opening the app to be greeted by it exactly once, setting a goal and marking
-it achieved and back, checking persistence across
-a reload, dark mode, that a focused text field is never removed from the
+confirm the answer survives the round trip, turning on a repeat range and
+confirming both the wizard and the schedule itself treat it as spanning every
+day in between, leaving a daily reminder and re-opening the app to be greeted
+by it exactly once, setting a goal and marking it achieved and back, checking
+persistence across a reload, dark mode, that a focused text field is never
+removed from the
 document when the screen around it re-renders (iOS closes the keyboard the
 instant that happens, and does not reopen it), that the calendar bridge really is
 served by the service worker as `text/calendar` over an ordinary URL (the

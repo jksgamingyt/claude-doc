@@ -1,7 +1,7 @@
 // store.js — the single source of truth, and the only thing that touches storage.
 
 import {
-  DAY, startOfDay, expiryFor, makeTemporary, makePermanent, makeDaily, makeGoal,
+  DAY, startOfDay, makeTemporary, makePermanent, makeDaily, makeGoal,
 } from './model.js';
 import { signatureTemporary, signaturePermanent } from './ics.js';
 
@@ -176,8 +176,10 @@ export class Store {
   updateTemporary(fields) {
     const index = this.state.temporary.findIndex((n) => n.id === fields.id);
     if (index < 0) return null;
+    // makeTemporary() already recomputes expiresAt from the merged fields —
+    // including a repeatUntil, if this edit set or cleared one — so there is
+    // nothing left to redo here.
     const note = makeTemporary({ ...this.state.temporary[index], ...fields });
-    note.expiresAt = expiryFor(note.due, note.linger, note.lingerDays);
     this.state.temporary[index] = note;
     this.changed();
     return note;

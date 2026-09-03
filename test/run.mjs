@@ -140,66 +140,90 @@ await test('endOfDay on a late-evening deadline still lands the same night', () 
 });
 
 // ---------------------------------------------------------------------------
-// Custom-day linger — the 1-to-365-day scroller alongside the seven presets
+// Repeat range — a temporary note spanning several days, start to end date
 // ---------------------------------------------------------------------------
 
-await test('a custom linger adds that many days to the deadline', () => {
+await test('a repeat end date is clamped to [due day, due day + 365]', () => {
   const due = at(2026, 7, 20, 18, 0);
-  assert.equal(M.expiryFor(due, M.CUSTOM_LINGER, 10), due + 10 * M.DAY);
-  assert.equal(M.expiryFor(due, M.CUSTOM_LINGER, 1), due + M.DAY);
-  assert.equal(M.expiryFor(due, M.CUSTOM_LINGER, 365), due + 365 * M.DAY);
+  assert.equal(M.clampRepeatUntil(at(2026, 7, 15), due), M.startOfDay(due), 'before the due day clamps up to it');
+  assert.equal(M.clampRepeatUntil(at(2026, 7, 25), due), M.startOfDay(at(2026, 7, 25)), 'a value already in range passes through');
+  assert.equal(M.clampRepeatUntil(at(2028, 0, 1), due), M.startOfDay(due) + M.MAX_REPEAT_DAYS * M.DAY, 'far beyond 365 days clamps back down');
 });
 
-await test('a custom linger day count is clamped to 1-365', () => {
-  assert.equal(M.clampLingerDays(0), 1);
-  assert.equal(M.clampLingerDays(-5), 1);
-  assert.equal(M.clampLingerDays(366), 365);
-  assert.equal(M.clampLingerDays(9999), 365);
-  assert.equal(M.clampLingerDays(40.6), 41, 'rounds rather than truncates');
-  assert.equal(M.clampLingerDays(undefined), 1, 'a missing value is not fatal');
-  assert.equal(M.clampLingerDays(NaN), 1);
-});
-
-await test('a temporary note with a custom linger clamps and applies it', () => {
+await test('a repeating note clears the day after its last occurrence, not by linger', () => {
   const note = M.makeTemporary({
-    title: 'Long-lived', due: at(2026, 7, 20, 18, 0), linger: M.CUSTOM_LINGER, lingerDays: 500,
+    title: 'Book fair', due: at(2026, 7, 20, 18, 0), linger: 'oneWeek', repeatUntil: at(2026, 7, 26),
   });
-  assert.equal(note.lingerDays, 365, 'clamped on the way in');
-  assert.equal(note.expiresAt, at(2026, 7, 20, 18, 0) + 365 * M.DAY);
+  assert.equal(note.repeatUntil, at(2026, 7, 26));
+  assert.equal(note.expiresAt, at(2026, 7, 27), 'the day after the last occurrence, regardless of the linger preset');
 });
 
-await test('an ordinary linger ignores whatever lingerDays happens to hold', () => {
+await test('a repeat end date before the due day is pulled forward to it', () => {
   const note = M.makeTemporary({
-    title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'oneDay', lingerDays: 200,
+    title: 'Odd input', due: at(2026, 7, 20, 18, 0), repeatUntil: at(2026, 7, 10),
   });
-  assert.equal(note.expiresAt, at(2026, 7, 21, 18, 0), 'still the plain +1 day rule');
+  assert.equal(note.repeatUntil, at(2026, 7, 20), 'clamped up to the due day itself');
+  assert.equal(note.expiresAt, at(2026, 7, 21), 'a same-day repeat still clears the next day');
 });
 
-await test('editing a note into a custom linger recomputes its expiry', () => {
+await test('with no repeatUntil, a note behaves exactly as it always has', () => {
+  const note = M.makeTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'oneDay' });
+  assert.equal(note.repeatUntil, null);
+  assert.equal(note.expiresAt, at(2026, 7, 21, 18, 0), 'the ordinary linger rule, untouched');
+});
+
+await test('a repeating note appears on every day of its range, not just the first and last', () => {
+  const note = M.makeTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 18, 0), repeatUntil: at(2026, 7, 26),
+  });
+  const state = stateWith([note]);
+  for (let day = 20; day <= 26; day += 1) {
+    assert.equal(E.entriesOn(state, at(2026, 7, day)).length, 1, `day ${day}`);
+  }
+  assert.equal(E.entriesOn(state, at(2026, 7, 19)).length, 0, 'not before it starts');
+  assert.equal(E.entriesOn(state, at(2026, 7, 27)).length, 0, 'not after it clears');
+});
+
+await test("the schedule entry says which day it's through, on every day it repeats", () => {
+  const note = M.makeTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 18, 0), repeatUntil: at(2026, 7, 26),
+  });
+  const state = stateWith([note]);
+  const firstDay = E.entriesOn(state, at(2026, 7, 20))[0];
+  const laterDay = E.entriesOn(state, at(2026, 7, 24))[0];
+  assert.equal(firstDay.recurrenceSummary, 'Through Aug 26');
+  assert.equal(laterDay.recurrenceSummary, 'Through Aug 26');
+
+  const plain = M.makeTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0) });
+  const plainEntry = E.entriesOn(stateWith([plain]), at(2026, 7, 20))[0];
+  assert.equal(plainEntry.recurrenceSummary, null, 'a non-repeating note carries no such summary');
+});
+
+await test('editing a note into a repeat range recomputes its expiry', () => {
   const store = freshStore();
   const note = store.addTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: 'atDue' });
   assert.equal(note.expiresAt, at(2026, 7, 20, 18, 0));
-  const updated = store.updateTemporary({ id: note.id, linger: M.CUSTOM_LINGER, lingerDays: 45 });
-  assert.equal(updated.expiresAt, at(2026, 7, 20, 18, 0) + 45 * M.DAY);
+  const updated = store.updateTemporary({ id: note.id, repeatUntil: at(2026, 7, 24) });
+  assert.equal(updated.expiresAt, at(2026, 7, 25));
 });
 
-await test('a custom-linger note carries the full 1-to-365-day range into the schedule', () => {
-  const note = M.makeTemporary({
-    title: 'Long haul', due: at(2026, 7, 20, 18, 0), linger: M.CUSTOM_LINGER, lingerDays: 200,
-  });
-  const state = stateWith([note]);
-  assert.equal(E.entriesOn(state, at(2026, 7, 20)).length, 1, 'shows on the due day');
-  assert.equal(E.entriesOn(state, at(2026, 12, 1)).length, 1, 'still lingering months later');
-});
-
-await test('a custom linger survives a save and reload', () => {
+await test('editing a repeating note back to a single day drops the range', () => {
   const store = freshStore();
-  store.addTemporary({ title: 'Rent', due: at(2026, 7, 20, 18, 0), linger: M.CUSTOM_LINGER, lingerDays: 90 });
+  const note = store.addTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 18, 0), linger: 'oneDay', repeatUntil: at(2026, 7, 26),
+  });
+  const updated = store.updateTemporary({ id: note.id, repeatUntil: null });
+  assert.equal(updated.repeatUntil, null);
+  assert.equal(updated.expiresAt, at(2026, 7, 21, 18, 0), 'back to the ordinary +1 day linger rule');
+});
+
+await test('a repeat range survives a save and reload', () => {
+  const store = freshStore();
+  store.addTemporary({ title: 'Book fair', due: at(2026, 7, 20, 18, 0), repeatUntil: at(2026, 7, 26) });
   store.saveNow();
   const reloaded = new S.Store();
-  assert.equal(reloaded.state.temporary[0].linger, M.CUSTOM_LINGER);
-  assert.equal(reloaded.state.temporary[0].lingerDays, 90);
-  assert.equal(reloaded.state.temporary[0].expiresAt, at(2026, 7, 20, 18, 0) + 90 * M.DAY);
+  assert.equal(reloaded.state.temporary[0].repeatUntil, at(2026, 7, 26));
+  assert.equal(reloaded.state.temporary[0].expiresAt, at(2026, 7, 27));
 });
 
 // ---------------------------------------------------------------------------

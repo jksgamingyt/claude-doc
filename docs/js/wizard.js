@@ -7,7 +7,7 @@
 
 import {
   TAGS, TAG_KEYS, LINGERS, LINGER_KEYS, RECURRENCE_KINDS,
-  CUSTOM_LINGER, MIN_LINGER_DAYS, MAX_LINGER_DAYS, formatLingerDays,
+  MAX_REPEAT_DAYS, clampRepeatUntil,
   NUDGE_OPTIONS, nudgeLabel, splitReminders, joinNudges,
   leadShort, leadLong, expiryFor, defaultRecurrence, recurrenceSummary,
   formatFull, formatMinutes, formatMonthDay, formatDayHeadline, formatDuration,
@@ -64,15 +64,6 @@ const TIME_STEP = 5;
 
 const DURATIONS = [15, 30, 60, 90, 120, 180, 240, ALL_DAY_MINUTES];
 const DURATION_STEP = 5;
-
-// The seven fixed lingers above, plus a free 1-to-365-day scroller for
-// anything they don't cover. Landmark stops are just visual reference points
-// on that scroller — every one of the 365 values is a real, pickable option,
-// so the "Custom" readout pops up for nearly all of them, which is exactly
-// what it's for.
-const LINGER_OPTIONS = [...LINGER_KEYS, CUSTOM_LINGER];
-const LINGER_DAY_STOPS = [1, 7, 14, 30, 90, 180, 365];
-const lingerOptionLabel = (key) => (key === CUSTOM_LINGER ? 'Custom' : LINGERS[key].short);
 
 /** Shared by every "time of day" slider: any minute, not just the shortcuts. */
 function timeOfDaySlider({ value, tone, onInput, onCommit }) {
@@ -281,7 +272,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       minutes: minutesOfDay(editing.due),
       isAllDay: editing.isAllDay,
       linger: editing.linger,
-      lingerDays: editing.lingerDays || 30,
+      repeatUntil: editing.repeatUntil || null,
       reminders: editing.reminders.slice(),
       notifyOnExpiry: editing.notifyOnExpiry,
       ...splitReminders(editing.reminders),
@@ -300,7 +291,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
       minutes: defaultMinutes,
       isAllDay: false,
       linger: settings.defaultLinger,
-      lingerDays: 30,
+      repeatUntil: null,
       reminders: settings.defaultTemporaryReminders.slice(),
       notifyOnExpiry: settings.notifyOnExpiry,
       ...splitReminders(settings.defaultTemporaryReminders),
@@ -378,41 +369,66 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
     },
     {
       render(d, refresh) {
-        const lingerChips = optionSlider({
-          options: LINGER_OPTIONS,
-          value: d.linger,
-          format: lingerOptionLabel,
-          label: 'Clears',
-          tone: 'clay',
-          onInput: (key) => { d.linger = key; },
-          onCommit: refresh,
-        });
+        const repeating = d.repeatUntil != null;
+        const dueDay = startOfDay(dueOf(d));
 
-        const customDaySlider = d.linger === CUSTOM_LINGER
-          ? continuousSlider({
-            min: MIN_LINGER_DAYS,
-            max: MAX_LINGER_DAYS,
-            step: 1,
-            stops: LINGER_DAY_STOPS,
-            value: d.lingerDays,
-            format: formatLingerDays,
-            label: 'Days',
+        const repeatGate = h('div.chips',
+          chip('Yes, repeat it', repeating,
+            () => { d.repeatUntil = addDays(dueDay, 1); refresh(); }, { tone: 'clay', iconName: 'repeat' }),
+          chip('No, just this day', !repeating,
+            () => { d.repeatUntil = null; refresh(); }, { tone: 'clay' }));
+
+        // Two same-shaped date fields, exactly as asked for — the start one
+        // just isn't editable here, since it's already the day chosen in
+        // step 1. Nothing new to type, only something to actually see.
+        const dateRange = repeating
+          ? h('div', { style: { marginTop: '12px', display: 'flex', gap: '10px' } },
+            h('div', { style: { flex: '1' } },
+              h('div.tiny.faint', { style: { marginBottom: '6px' }, text: 'Starts' }),
+              h('input', {
+                type: 'date', value: toDateValue(dueDay), disabled: true, 'aria-label': 'Starts',
+              })),
+            h('div', { style: { flex: '1' } },
+              h('div.tiny.faint', { style: { marginBottom: '6px' }, text: 'Repeats through' }),
+              h('input', {
+                type: 'date',
+                value: toDateValue(d.repeatUntil),
+                min: toDateValue(dueDay),
+                max: toDateValue(addDays(dueDay, MAX_REPEAT_DAYS)),
+                'aria-label': 'Repeats through',
+                onchange: (event) => {
+                  const parsed = fromDateValue(event.target.value);
+                  if (parsed != null) { d.repeatUntil = clampRepeatUntil(parsed, dueOf(d)); refresh(); }
+                },
+              })))
+          : null;
+
+        const lingerChips = !repeating
+          ? optionSlider({
+            options: LINGER_KEYS,
+            value: d.linger,
+            format: (key) => LINGERS[key].short,
+            label: 'Clears',
             tone: 'clay',
-            onInput: (days) => { d.lingerDays = days; },
+            onInput: (key) => { d.linger = key; },
             onCommit: refresh,
           })
           : null;
 
-        const expiry = expiryFor(dueOf(d), d.linger, d.lingerDays);
-        const expiryText = d.linger === 'atDue'
-          ? "Clears the moment it's due."
-          : `Clears ${formatFull(expiry)}.`;
+        const expiryText = repeating
+          ? `Repeats every day through ${formatDayHeadline(d.repeatUntil)}, then clears.`
+          : (d.linger === 'atDue'
+            ? "Clears the moment it's due."
+            : `Clears ${formatFull(expiryFor(dueOf(d), d.linger))}.`);
 
         return h('div',
-          fieldBlock('When should it disappear?',
+          fieldBlock('Should this repeat across several days?',
+            "From its due day through an end date you pick, it appears on the schedule every day in between.",
+            repeatGate,
+            dateRange),
+          !repeating && fieldBlock('When should it disappear?',
             'Once this passes, the note leaves your schedule on its own. Nothing is lost — it moves to Recently cleared.',
-            lingerChips,
-            customDaySlider && h('div', { style: { marginTop: '14px' } }, customDaySlider)),
+            lingerChips),
           notificationGate(d, refresh, 'clay', [
             h('div.settings-group', { style: { marginTop: '2px' } },
               toggleRow('Tell me when it expires',
@@ -444,7 +460,7 @@ export function openTemporaryWizard({ seed, editing, settings, onSave }) {
         due: dueOf(d),
         isAllDay: d.isAllDay,
         linger: d.linger,
-        lingerDays: d.lingerDays,
+        repeatUntil: d.repeatUntil,
         reminders: d.notify ? joinNudges(d.nudgeA, d.nudgeB) : [],
         notifyOnExpiry: d.notify ? d.notifyOnExpiry : false,
         tag: d.tag,

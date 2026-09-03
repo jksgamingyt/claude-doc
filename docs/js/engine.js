@@ -7,7 +7,7 @@
 import {
   DAY, MINUTE, startOfDay, addDays, dayKey,
   occurrenceStart, isAllDayPermanent, recurrenceSummary,
-  formatTime,
+  formatTime, formatMonthDay,
 } from './model.js';
 
 /** All entries for one day, sorted. */
@@ -55,7 +55,7 @@ export function entriesOn(state, dayMs) {
       tag: note.tag,
       isDone: note.isDone,
       isOverdue: !note.isDone && note.due < now,
-      recurrenceSummary: null,
+      recurrenceSummary: note.repeatUntil != null ? `Through ${formatMonthDay(note.repeatUntil)}` : null,
       expiresAt: note.expiresAt,
     });
   }

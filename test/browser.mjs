@@ -409,9 +409,9 @@ check('sheet closes after saving', await page.locator('.sheet').count() === 0);
 check('the note is listed', await page.getByText('Pay the rent').count() > 0);
 await shot('temporary-list');
 
-// --- a custom day-range linger: 1 to 365 days, on top of the seven presets
+// --- a repeat range: a temporary note spanning several days, start to end
 const composerCustom = page.locator('.composer input');
-await composerCustom.fill('Long project');
+await composerCustom.fill('Book fair');
 await composerCustom.press('Enter');
 await page.waitForTimeout(300);
 await page.locator('.sheet-foot .btn:not(.soft)').click(); // Next, off the default day/time
@@ -419,44 +419,72 @@ await page.waitForTimeout(220);
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(220);
 check('lands on the expiry step', await page.getByText('When should it disappear?').count() > 0);
+check('and it asks whether this repeats',
+  await page.getByText('Should this repeat across several days?').count() > 0);
 
-check('no day-count scroller until Custom is chosen',
-  (await sliderReadout('Days')) === null);
+check('no date range is shown until repeat is turned on',
+  await page.locator('.sheet-body input[type="date"]').count() === 0);
 
-// LINGER_OPTIONS is the 7 presets plus "customDays" appended — index 7.
-await setSlider('Clears', 7);
-check('choosing Custom reveals a day-count scroller, defaulted to 30',
-  (await sliderReadout('Days')) === '30 days', String(await sliderReadout('Days')));
-await shot('wizard-custom-linger');
+await tapText('Yes, repeat it');
+const dateInputs = page.locator('.sheet-body input[type="date"]');
+check('choosing to repeat reveals a start date and an end date',
+  await dateInputs.count() === 2);
+check('the start date is shown but not editable — it is already the due day',
+  await dateInputs.first().isDisabled());
+check('the "When should it disappear?" question is replaced, not just hidden alongside it',
+  await page.getByText('When should it disappear?').count() === 0);
+await shot('wizard-repeat-range');
 
-// A landmark stop first — commits immediately, same as any other slider here.
-await setSlider('Days', 90);
-check('the day-count slider reads back a landmark stop',
-  (await sliderReadout('Days')) === '90 days', String(await sliderReadout('Days')));
-
-// Then a genuinely custom, off-grid day count — the same "pops up, holds for
-// a beat" behaviour continuousSlider() already gives Time of day / Holds for.
-await setSlider('Days', 47);
-check('and a fully custom day count, not just the seven landmark stops',
-  (await sliderReadout('Days')) === '47 days', String(await sliderReadout('Days')));
-check('with the same "Custom" readout the other continuous sliders use',
-  (await customBubble('Days')).text.includes('47 days'), JSON.stringify(await customBubble('Days')));
-
-// The far ends of the range actually work, not just the middle.
-await setSlider('Days', 1);
-check('the low end of the range (1 day) is reachable',
-  (await sliderReadout('Days')) === '1 day', String(await sliderReadout('Days')));
-await setSlider('Days', 365);
-check('and the high end (365 days) is too',
-  (await sliderReadout('Days')) === '365 days', String(await sliderReadout('Days')));
+// Push the end date out five days from wherever it defaulted to, entirely
+// within the page (no Node-side date-string reconstruction to get wrong).
+const rangeAfterEdit = await page.evaluate(() => {
+  const inputs = [...document.querySelectorAll('.sheet-body input[type="date"]')];
+  const endInput = inputs.find((el) => !el.disabled);
+  const d = new Date(`${endInput.value}T00:00:00`);
+  d.setDate(d.getDate() + 5);
+  const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  endInput.value = value;
+  endInput.dispatchEvent(new Event('change', { bubbles: true }));
+  return value;
+});
+await page.waitForTimeout(200);
+check('the end date field reflects the new value',
+  await dateInputs.nth(1).inputValue() === rangeAfterEdit, await dateInputs.nth(1).inputValue());
+check('the summary now talks about repeating, not clearing',
+  await page.getByText(/Repeats every day through/).count() > 0);
 
 await page.locator('.sheet-foot .btn:not(.soft)').click();
 await page.waitForTimeout(400);
-check('a custom-linger note saves and is listed',
-  await page.getByText('Long project').count() > 0);
+check('a repeating note saves and is listed',
+  await page.getByText('Book fair').count() > 0);
+check('and the list row says it repeats, not when it clears',
+  await page.getByText(/Repeats through/).count() > 0);
 
-// --- editing it back opens with Custom pre-selected and the right day count
-await page.locator('.note', { hasText: 'Long project' }).first().click();
+// The actual point of the feature: does it really show up every day, not
+// just the first and last.
+const span = await page.evaluate(async () => {
+  const engine = await import('./js/engine.js');
+  const app = window.myschedule;
+  const note = app.store.state.temporary.find((n) => n.title === 'Book fair');
+  if (!note) return { found: false };
+  const dueDay = new Date(note.due).setHours(0, 0, 0, 0);
+  const midDay = dueDay + 3 * 86400000;
+  const on = (dayMs) => engine.entriesOn(app.store.state, dayMs).some((e) => e.title === 'Book fair');
+  return {
+    found: true,
+    onDueDay: on(dueDay),
+    onMidDay: on(midDay),
+    onLastDay: on(note.repeatUntil),
+    afterLastDay: on(note.repeatUntil + 86400000),
+  };
+});
+check('it appears on its due day', span.found && span.onDueDay, JSON.stringify(span));
+check('and partway through the range', span.onMidDay);
+check('and on the last day of the range', span.onLastDay);
+check('but not the day after it clears', !span.afterLastDay);
+
+// --- editing it back shows Yes pre-selected and the actual saved end date
+await page.locator('.note', { hasText: 'Book fair' }).first().click();
 await page.waitForTimeout(300);
 await page.getByText('Edit this note').click();
 await page.waitForTimeout(300);
@@ -464,15 +492,29 @@ await page.locator('.sheet-foot .btn:not(.soft)').click(); // day
 await page.waitForTimeout(220);
 await page.locator('.sheet-foot .btn:not(.soft)').click(); // time
 await page.waitForTimeout(220);
-check('editing shows Custom already selected',
-  (await sliderReadout('Clears')) === 'Custom', String(await sliderReadout('Clears')));
-check('and the day count it was actually saved with — not the 30-day default',
-  (await sliderReadout('Days')) === '365 days', String(await sliderReadout('Days')));
-await page.getByText('Cancel').first().click(); // leave it as saved, no edits made
-await page.waitForTimeout(300);
+check('editing shows repeat already turned on',
+  await page.locator('.chip', { hasText: 'Yes, repeat it' }).getAttribute('aria-pressed') === 'true');
+check('with the end date it was actually saved with',
+  await page.locator('.sheet-body input[type="date"]').nth(1).inputValue() === rangeAfterEdit,
+  await page.locator('.sheet-body input[type="date"]').nth(1).inputValue());
+
+// Turn it back off and confirm the ordinary Clears question returns.
+await tapText('No, just this day');
+check('turning repeat off brings back the Clears question',
+  await page.getByText('When should it disappear?').count() > 0);
+check('and the date fields go away',
+  await page.locator('.sheet-body input[type="date"]').count() === 0);
+await page.locator('.sheet-foot .btn:not(.soft)').click();
+await page.waitForTimeout(400);
+const afterUnrepeat = await page.evaluate(() => {
+  const note = window.myschedule.store.state.temporary.find((n) => n.title === 'Book fair');
+  return note ? note.repeatUntil : 'missing';
+});
+check('saving with repeat off actually clears the saved range',
+  afterUnrepeat === null, String(afterUnrepeat));
 
 // Clean up — later checks in this file assume exactly one temporary note.
-await page.locator('.note', { hasText: 'Long project' }).first().click();
+await page.locator('.note', { hasText: 'Book fair' }).first().click();
 await page.waitForTimeout(300);
 await page.getByText('Remove').click();
 await page.waitForTimeout(250);
@@ -480,8 +522,8 @@ await page.waitForTimeout(250);
 // note?", which a substring match finds before the button and taps instead.
 await page.locator('.sheet-foot .btn.clay').click();
 await page.waitForTimeout(300);
-check('the custom-linger note is cleaned up again',
-  await page.getByText('Long project').count() === 0);
+check('the repeating note is cleaned up again',
+  await page.getByText('Book fair').count() === 0);
 
 // --- add a permanent note
 await page.getByRole('tab', { name: /Permanent/ }).click();
