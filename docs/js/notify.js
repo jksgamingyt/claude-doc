@@ -15,8 +15,9 @@
 //      while it was closed and tells you, so nothing passes unnoticed even
 //      when tiers 1 and 2 both missed it.
 
-import { MINUTE } from './model.js';
-import { occurrenceStart } from './model.js';
+import {
+  MINUTE, occurrenceStart, startOfDay, addDays, sameTimeOn,
+} from './model.js';
 
 const SEEN_KEY = 'myschedule.seenReminders.v1';
 const MAX_TIMERS = 40;
@@ -82,20 +83,50 @@ export function reminderTimetable(state, fromMs, horizonDays = 14) {
 
   for (const note of state.temporary) {
     if (note.isDone) continue;
-    for (const lead of note.reminders || []) {
-      const at = note.due - lead * MINUTE;
-      if (at > until) continue;
-      out.push({
-        key: `t.${note.id}.${lead}`,
-        at,
-        title: note.title,
-        body: lead === 0
-          ? 'Due now.'
-          : `Due in ${describeLead(lead)}.`,
-        noteId: note.id,
-        kind: 'temporary',
-      });
+
+    if (note.repeatUntil != null) {
+      // A separate occurrence — and its own reminders — for every day in
+      // the range, not just the first. Bounded by whichever ends sooner:
+      // the repeat range itself, or the horizon being asked about, so a
+      // long-running repeat does not walk hundreds of days doing nothing
+      // when only the next two are wanted.
+      const lastDay = Math.min(note.repeatUntil, startOfDay(until));
+      let day = startOfDay(note.due);
+      let guard = 0;
+      while (day <= lastDay && guard < 400) {
+        const occurrence = sameTimeOn(day, note.due);
+        for (const lead of note.reminders || []) {
+          const at = occurrence - lead * MINUTE;
+          if (at > until) continue;
+          out.push({
+            key: `t.${note.id}.${day}.${lead}`,
+            at,
+            title: note.title,
+            body: lead === 0 ? 'Due now.' : `Due in ${describeLead(lead)}.`,
+            noteId: note.id,
+            kind: 'temporary',
+          });
+        }
+        day = addDays(day, 1);
+        guard += 1;
+      }
+    } else {
+      for (const lead of note.reminders || []) {
+        const at = note.due - lead * MINUTE;
+        if (at > until) continue;
+        out.push({
+          key: `t.${note.id}.${lead}`,
+          at,
+          title: note.title,
+          body: lead === 0
+            ? 'Due now.'
+            : `Due in ${describeLead(lead)}.`,
+          noteId: note.id,
+          kind: 'temporary',
+        });
+      }
     }
+
     if (note.notifyOnExpiry && state.settings.notifyOnExpiry && note.expiresAt <= until) {
       out.push({
         key: `t.${note.id}.expiry`,

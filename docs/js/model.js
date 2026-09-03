@@ -262,6 +262,20 @@ export function minutesOfDay(ms) {
   return d.getHours() * 60 + d.getMinutes();
 }
 
+/**
+ * `referenceMs`'s wall-clock time (hour, minute, second), applied to
+ * `dayMs`'s calendar date. Built with local Date setters rather than adding
+ * a raw millisecond offset, so a repeating note due at 4pm still lands on
+ * 4pm on the other side of a daylight-saving change — a fixed offset would
+ * drift by an hour on exactly the days that cross one.
+ */
+export function sameTimeOn(dayMs, referenceMs) {
+  const ref = new Date(referenceMs);
+  const d = new Date(dayMs);
+  d.setHours(ref.getHours(), ref.getMinutes(), ref.getSeconds(), ref.getMilliseconds());
+  return d.getTime();
+}
+
 export function dayKey(ms) {
   const d = new Date(ms);
   const month = String(d.getMonth() + 1).padStart(2, '0');

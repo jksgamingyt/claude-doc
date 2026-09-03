@@ -227,6 +227,118 @@ await test('a repeat range survives a save and reload', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Repeat range — each day keeps the note's actual due time, not midnight
+// ---------------------------------------------------------------------------
+//
+// A repeating day used to reuse the "carried-over, still lingering" render
+// path, which sits an item at the top of the day from midnight to midnight.
+// That is right for a note that is merely overdue and not yet cleared, but
+// wrong for a repeat: each day is its own fresh occurrence at the note's
+// actual time, on the schedule, in reminders, and in the calendar export.
+
+await test("sameTimeOn moves a moment's clock time onto a different day", () => {
+  const reference = at(2026, 7, 20, 16, 30);
+  assert.equal(M.sameTimeOn(at(2026, 7, 24), reference), at(2026, 7, 24, 16, 30));
+  assert.equal(M.sameTimeOn(at(2026, 7, 20), reference), reference, 'the same day is a no-op');
+});
+
+await test('sameTimeOn survives a daylight-saving boundary', () => {
+  // This machine runs in UTC, which has no DST transition to drift across —
+  // so borrow a zone that does for just this one check. US DST ends 1 Nov
+  // 2026, a 25-hour day; a naive ms-offset (rather than local Date setters)
+  // would land an hour short of 4pm landing exactly on that day.
+  const originalTZ = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  try {
+    const reference = at(2026, 9, 30, 16, 0); // the day before the boundary
+    const transitionDay = at(2026, 10, 1); // 1 Nov 2026 itself
+    const moved = M.sameTimeOn(transitionDay, reference);
+    assert.equal(new Date(moved).getHours(), 16, 'still 4pm local wall-clock time');
+    assert.equal(new Date(moved).getMinutes(), 0);
+  } finally {
+    process.env.TZ = originalTZ;
+  }
+});
+
+await test('a repeating note keeps its due time on every day, not midnight', () => {
+  const note = M.makeTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 16, 0), repeatUntil: at(2026, 7, 22),
+  });
+  const state = stateWith([note]);
+  for (let day = 20; day <= 22; day += 1) {
+    const [entry] = E.entriesOn(state, at(2026, 7, day));
+    assert.equal(entry.start, at(2026, 7, day, 16, 0), `day ${day} start`);
+    assert.equal(entry.end, at(2026, 7, day, 16, 0), `day ${day} end — a point in time, not a span`);
+  }
+});
+
+await test('a repeating note is overdue only on the days whose occurrence has actually passed', () => {
+  const note = M.makeTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 16, 0), repeatUntil: at(2026, 7, 22),
+  });
+  // "now" sits between day 20's 4pm occurrence and day 21's.
+  const state = stateWith([note], [], at(2026, 7, 20, 18, 0));
+  assert.equal(E.entriesOn(state, at(2026, 7, 20))[0].isOverdue, true, 'day 20 has already passed');
+  assert.equal(E.entriesOn(state, at(2026, 7, 21))[0].isOverdue, false, 'day 21 has not happened yet');
+  assert.equal(E.entriesOn(state, at(2026, 7, 22))[0].isOverdue, false, 'nor day 22');
+});
+
+await test("a repeating note gets its own reminder on every day, at that day's time", () => {
+  const store = freshStore();
+  store.addTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 16, 0), repeatUntil: at(2026, 7, 22), reminders: [60],
+    notifyOnExpiry: false,
+  });
+  const timetable = N.reminderTimetable(store.state, at(2026, 7, 18), 10);
+  assert.deepEqual(
+    timetable.map((t) => t.at),
+    [at(2026, 7, 20, 15, 0), at(2026, 7, 21, 15, 0), at(2026, 7, 22, 15, 0)],
+    'one reminder per repeat day, each an hour before that day\'s 4pm',
+  );
+});
+
+await test("a repeating note's reminders are bounded by the horizon asked for, not walked to the end of the range", () => {
+  const store = freshStore();
+  store.addTemporary({
+    title: 'Long haul', due: at(2026, 7, 20, 16, 0), repeatUntil: at(2026, 7, 20) + 300 * M.DAY, reminders: [60],
+  });
+  const timetable = N.reminderTimetable(store.state, at(2026, 7, 18), 10);
+  assert.ok(timetable.length > 0 && timetable.length <= 12, `expected roughly 10 days of reminders, got ${timetable.length}`);
+});
+
+await test('a repeating note exports as a bounded daily RRULE at its actual time, not a single event', () => {
+  const note = M.makeTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 16, 0), repeatUntil: at(2026, 7, 26),
+  });
+  const { text } = I.buildICS({ temporary: [note], permanent: [] });
+  const lines = text.split('\r\n');
+  assert.equal(lines.find((l) => l.startsWith('DTSTART')), 'DTSTART:20260820T160000', 'DTSTART keeps the actual due time');
+  // Exact match, not a substring check: DTSTART here is a floating local
+  // time (no Z, no TZID), so per RFC 5545 §3.3.10 UNTIL must float too — a
+  // trailing Z (UTC) would still contain this string as a prefix.
+  assert.equal(
+    lines.find((l) => l.startsWith('RRULE')),
+    'RRULE:FREQ=DAILY;UNTIL=20260826T160000',
+    "UNTIL floats, matching DTSTART's local-time value type — no trailing Z",
+  );
+});
+
+await test('a non-repeating temporary note carries no RRULE at all', () => {
+  const note = M.makeTemporary({ title: 'Rent', due: at(2026, 7, 20, 16, 0) });
+  const { text } = I.buildICS({ temporary: [note], permanent: [] });
+  assert.ok(!text.includes('RRULE'), 'a single-day note is not a recurring event');
+});
+
+await test("an all-day repeating note's UNTIL is a bare date, matching its DATE-valued DTSTART", () => {
+  const note = M.makeTemporary({
+    title: 'Book fair', due: at(2026, 7, 20, 9, 0), isAllDay: true, repeatUntil: at(2026, 7, 26),
+  });
+  const { text } = I.buildICS({ temporary: [note], permanent: [] });
+  const rrule = text.split('\r\n').find((l) => l.startsWith('RRULE'));
+  assert.equal(rrule, 'RRULE:FREQ=DAILY;UNTIL=20260826', 'a bare date, exactly — no time component, no trailing Z');
+});
+
+// ---------------------------------------------------------------------------
 // Engine
 // ---------------------------------------------------------------------------
 

@@ -9,7 +9,7 @@
 // covers every future occurrence for good.
 
 import {
-  MINUTE, isAllDayPermanent, startOfDay, recurrenceOccurs,
+  MINUTE, isAllDayPermanent, startOfDay, recurrenceOccurs, sameTimeOn,
 } from './model.js';
 
 const PRODID = '-//MySchedule//Personal Schedule//EN';
@@ -151,17 +151,29 @@ export function temporaryEvent(note, stamp, sequence = 0) {
   lines.push(`DTSTAMP:${stamp}`);
   lines.push(`SEQUENCE:${sequence}`);
 
+  const repeating = note.repeatUntil != null;
+
   if (note.isAllDay) {
     const day = startOfDay(note.due);
     lines.push(`DTSTART;VALUE=DATE:${dateStamp(day)}`);
     lines.push(`DTEND;VALUE=DATE:${dateStamp(day + 86400000)}`);
+    // UNTIL must share DTSTART's value type (RFC 5545 §3.3.10) — a bare
+    // date here, not a date-time, and never a day short: UNTIL is the last
+    // *instance*, i.e. the repeatUntil day itself.
+    if (repeating) lines.push(`RRULE:FREQ=DAILY;UNTIL=${dateStamp(note.repeatUntil)}`);
   } else {
     lines.push(`DTSTART:${localStamp(note.due)}`);
     lines.push(`DTEND:${localStamp(note.due + 30 * MINUTE)}`);
+    if (repeating) {
+      // DTSTART here is a floating local time (no Z, no TZID), so per the
+      // same RFC rule UNTIL must float too — the same wall-clock moment as
+      // every other occurrence, on the last day of the range.
+      lines.push(`RRULE:FREQ=DAILY;UNTIL=${localStamp(sameTimeOn(note.repeatUntil, note.due))}`);
+    }
   }
 
   lines.push(`SUMMARY:${esc(note.title)}`);
-  lines.push(`DESCRIPTION:${esc(describe(note, 'Deadline.'))}`);
+  lines.push(`DESCRIPTION:${esc(describe(note, repeating ? 'Repeats on the schedule.' : 'Deadline.'))}`);
   lines.push('CATEGORIES:MySchedule,Temporary');
   lines.push(...alarms(note.reminders, note.title));
   lines.push('END:VEVENT');
@@ -267,7 +279,7 @@ export function exportable(state, onlyNew = true) {
  * one is not.
  */
 export function signatureTemporary(note) {
-  return [note.title, note.due, note.isAllDay, (note.reminders || []).join('.')].join('|');
+  return [note.title, note.due, note.isAllDay, note.repeatUntil, (note.reminders || []).join('.')].join('|');
 }
 
 export function signaturePermanent(note) {

@@ -152,10 +152,11 @@ see exactly what got set.
 Answer "Yes, repeat it" on the **Clears** step and the seven fixed lingers
 (on time, +1 hour, end of day, +1 week, and so on) are replaced by a start
 date — already fixed, from the day you chose earlier — and an end date you
-pick. It then appears on the schedule every day in between, and clears for
-good the day after. No scroller for this one: two plain date fields, because
-a calendar picker is the natural way to answer "until when," not a count of
-days to drag through.
+pick. It then appears on the schedule every day in between, at the exact time
+of day you gave it (4pm stays 4pm on every one of those days — never
+midnight), and clears for good the day after. No scroller for this one: two
+plain date fields, because a calendar picker is the natural way to answer
+"until when," not a count of days to drag through.
 
 **Every note is asked whether it should notify you at all.** Answer no and the
 note is silent: it still sits on your schedule and still goes to Calendar, it
@@ -323,7 +324,7 @@ MySchedule/               the native SwiftUI version (needs a Mac)
 MySchedule.xcodeproj/
 
 test/
-  run.mjs                 96 logic tests — recurrence, expiry, sweep, ICS, goals
+  run.mjs                 105 logic tests — recurrence, expiry, sweep, ICS, goals
   browser.mjs             177 checks driving the real app in a real browser
 
 Tools/                    generators and checkers for the native version
@@ -350,12 +351,15 @@ npm run shots        # browser suite + screenshots of every screen
 `test/run.mjs` covers the parts worth being sure about: recurrence across
 daylight-saving boundaries, the last-day-of-a-short-month fallback, expiry and
 lingering, a repeat range appearing on every day it spans (not just the first
-and last) and clamping to a sensible end date, the sweep, lossy loading of a
-corrupt record, silent notes staying silent everywhere, a daily reminder
-written at 11:59pm waiting until the next morning, goals grouping into past
-due / in progress / achieved and staying out of both the schedule and the
-calendar export, and the generated calendar file down to its line endings
-and escaping.
+and last) at its actual due time rather than midnight — overdue-ness judged
+per occurrence, not from the first day alone — and clamping to a sensible end
+date, the sweep, lossy loading of a corrupt record, silent notes staying
+silent everywhere, a daily reminder written at 11:59pm waiting until the next
+morning, goals grouping into past due / in progress / achieved and staying
+out of both the schedule and the calendar export, and the generated calendar
+file down to its line endings, escaping, and — for a repeating note — an
+RRULE whose UNTIL matches DTSTART's value type exactly, floating local time
+or bare date, never a stray UTC "Z".
 
 `test/browser.mjs` drives the actual app in Chromium at iPhone dimensions —
 walking both wizards end to end, saving a note as silent and re-opening it to

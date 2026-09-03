@@ -5,7 +5,7 @@
 // keeps the schedule from drifting away from the notes.
 
 import {
-  DAY, MINUTE, startOfDay, addDays, dayKey,
+  DAY, MINUTE, startOfDay, addDays, dayKey, sameTimeOn,
   occurrenceStart, isAllDayPermanent, recurrenceSummary,
   formatTime, formatMonthDay,
 } from './model.js';
@@ -18,7 +18,8 @@ export function entriesOn(state, dayMs) {
   const now = state.now || Date.now();
   const out = [];
 
-  // --- Temporary notes occupy the day they are due, plus any day they linger into.
+  // --- Temporary notes occupy the day they are due, plus any day they linger
+  // or repeat into.
   for (const note of state.temporary) {
     if (note.isDone && !state.settings.showCompletedOnSchedule) continue;
 
@@ -28,16 +29,26 @@ export function entriesOn(state, dayMs) {
     // A note expiring exactly at midnight does not bleed into the new day.
     if (dayStart === lastDay && note.expiresAt === lastDay && lastDay > firstDay) continue;
 
+    const repeating = note.repeatUntil != null;
     let start;
     let end;
     if (note.isAllDay) {
       start = dayStart;
       end = Math.min(note.expiresAt, dayEnd);
+    } else if (repeating) {
+      // Every day in the range gets its own occurrence at the note's actual
+      // time of day — not the "ongoing item sitting at the top of the day"
+      // treatment a merely-lingering note gets on the days after its due
+      // day, which is a different feature: something still overdue and not
+      // yet cleared, not something meant to alert you again on schedule.
+      start = sameTimeOn(dayStart, note.due);
+      end = start;
     } else if (dayStart === firstDay) {
       start = note.due;
       end = Math.max(note.due, Math.min(note.expiresAt, dayEnd));
     } else {
-      // A carried-over day: it sits at the top as an ongoing item.
+      // A carried-over day (lingering, not repeating): sits at the top as
+      // an ongoing item.
       start = dayStart;
       end = Math.min(note.expiresAt, dayEnd);
     }
@@ -54,8 +65,11 @@ export function entriesOn(state, dayMs) {
       isAllDay: note.isAllDay,
       tag: note.tag,
       isDone: note.isDone,
-      isOverdue: !note.isDone && note.due < now,
-      recurrenceSummary: note.repeatUntil != null ? `Through ${formatMonthDay(note.repeatUntil)}` : null,
+      // A repeating note's overdue-ness is judged per occurrence — a future
+      // day in the range is not overdue just because an earlier one has
+      // already passed.
+      isOverdue: !note.isDone && (repeating ? start : note.due) < now,
+      recurrenceSummary: repeating ? `Through ${formatMonthDay(note.repeatUntil)}` : null,
       expiresAt: note.expiresAt,
     });
   }
